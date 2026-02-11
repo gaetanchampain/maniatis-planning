@@ -119,7 +119,7 @@ function transformSalon(cfg,coiffeurs){
     accentColor:cfg?.accentColor||"#6366f1"};
 }
 function transformCoiffeurs(obj){
-  return fbObj2Arr(obj).map(c=>({...c,
+  return fbObj2Arr(obj).filter(c=>!!c.prenom).map(c=>({...c,
     specialisations:c.specialisations||[],conges:c.conges||[],
     actif:c.actif!==false,couleur:c.couleur||"#6366f1",
     horaires:c.horaires||{},pause_dejeuner:c.pause_dejeuner||"12:30-13:30"
