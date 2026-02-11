@@ -119,11 +119,15 @@ function transformSalon(cfg,coiffeurs){
     accentColor:cfg?.accentColor||"#6366f1"};
 }
 function transformCoiffeurs(obj){
-  return fbObj2Arr(obj).filter(c=>!!c.prenom).map(c=>({...c,
+  const arr=fbObj2Arr(obj).filter(c=>!!c.prenom).map(c=>({...c,
     specialisations:c.specialisations||[],conges:c.conges||[],
     actif:c.actif!==false,couleur:c.couleur||"#6366f1",
     horaires:c.horaires||{},pause_dejeuner:c.pause_dejeuner||"12:30-13:30"
   })).sort((a,b)=>(a.ordre_affichage||99)-(b.ordre_affichage||99));
+  /* Auto-assign ordre_affichage to coiffeurs missing it */
+  let maxO=Math.max(0,...arr.filter(c=>c.ordre_affichage&&c.ordre_affichage<90).map(c=>c.ordre_affichage));
+  arr.forEach(c=>{if(!c.ordre_affichage||c.ordre_affichage>=90){maxO++;c.ordre_affichage=maxO;}});
+  return arr.sort((a,b)=>a.ordre_affichage-b.ordre_affichage);
 }
 function transformPrestations(obj){
   return fbObj2Arr(obj).map(p=>({...p,
@@ -1023,7 +1027,7 @@ function MacroPlanning({coiffeurs,salon,T}){
 
 /* CRUD: COIFFEURS with specialisations, horaires, congés, QR */
 function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
-  const [em,setEm]=useState(null);const [tab,setTab]=useState("info");const [saving,setSaving]=useState(false);
+  const [em,setEm]=useState(null);const [tab,setTab]=useState("info");const [saving,setSaving]=useState(false);const [savingMsg,setSavingMsg]=useState("");
   const salonClosed=salon?.jours_fermes||["lundi","dimanche"];
   const [f,setF]=useState({prenom:"",nom:"",email:"",telephone:"",couleur:"#6366f1",specialisations:[],
     horaires:{mardi:{debut:"09:30",fin:"19:00"},mercredi:{debut:"09:30",fin:"19:00"},jeudi:{debut:"09:30",fin:"19:00"},vendredi:{debut:"09:30",fin:"19:00"},samedi:{debut:"09:00",fin:"18:00"}},
@@ -1063,7 +1067,11 @@ function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
           <Btn variant="danger" icon={Trash2} small onClick={async()=>{if(!window.confirm(`Supprimer ${c.prenom} ${c.nom} ? Cette action est irréversible.`))return;setCoiffeurs(coiffeurs.filter(x=>x.id!==c.id));await fbDel(`coiffeurs/${c.id}`);}} T={T}>Suppr.</Btn></div>
       </div>))}</div>
 
-    <Modal open={!!em} onClose={()=>setEm(null)} title={em==="new"?"Nouveau coiffeur":"Modifier coiffeur"} width={620} T={T}>
+    <Modal open={!!em} onClose={()=>{if(!saving)setEm(null);}} title={em==="new"?"Nouveau coiffeur":"Modifier coiffeur"} width={620} T={T}>
+      {saving&&<div style={{position:"absolute",inset:0,background:T.surface+"ee",zIndex:50,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",borderRadius:16}}>
+        <div style={{width:36,height:36,border:`3px solid ${T.border}`,borderTopColor:T.accent,borderRadius:"50%",animation:"spin 0.8s linear infinite",marginBottom:14}}/>
+        <div style={{fontSize:14,fontWeight:600,color:T.text}}>{savingMsg}</div>
+      </div>}
       {/* Tabs */}
       <div style={{display:"flex",gap:2,marginBottom:18,background:T.surface2,borderRadius:10,padding:3,border:`1px solid ${T.border}`}}>
         {[{id:"info",l:"Infos"},{id:"horaires",l:"Horaires"},{id:"conges",l:"Congés"}].map(t=>(
@@ -1146,17 +1154,19 @@ function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
         <Btn variant="accent" icon={Save} T={T} disabled={saving} onClick={async()=>{
           if(saving)return;setSaving(true);
           try{
-          if(em==="new"){const newId="COIF"+String(Date.now()).slice(-6);
+          if(em==="new"){setSavingMsg("Création de la fiche coiffeur...");
+            const newId="COIF"+String(Date.now()).slice(-6);
             const maxOrdre=Math.max(0,...coiffeurs.map(c=>c.ordre_affichage||0));
             const nc={...f,id:newId,actif:true,ordre_affichage:maxOrdre+1};
             await fbPut(`coiffeurs/${newId}`,nc);
+            setSavingMsg("Création du planning Google Calendar...");
             let calId="";
             try{const gcr=await gcalSync("create_calendar",{coiffeur_prenom:f.prenom||"Coiffeur",coiffeur_id:newId});
               if(gcr?.google_calendar_id){calId=gcr.google_calendar_id;}}catch(e){console.error("GCal creation error:",e);}
             const final={...nc,google_calendar_id:calId||""};
             setCoiffeurs(prev=>[...prev,final]);}
-          else{setCoiffeurs(coiffeurs.map(c=>c.id===em?{...c,...f}:c));await fbPatch(`coiffeurs/${em}`,f);}
-          setEm(null);}finally{setSaving(false);}}}>{saving?"Création...":"Enregistrer"}</Btn></div></Modal></div>);
+          else{setSavingMsg("Mise à jour...");setCoiffeurs(coiffeurs.map(c=>c.id===em?{...c,...f}:c));await fbPatch(`coiffeurs/${em}`,f);}
+          setEm(null);}finally{setSaving(false);setSavingMsg("");}}}>{saving?"En cours...":"Enregistrer"}</Btn></div></Modal></div>);
 }
 
 /* SALON SETTINGS */
