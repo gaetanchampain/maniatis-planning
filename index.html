@@ -1308,7 +1308,7 @@ function App(){
   const loadData=useCallback(async(initial)=>{
     try{
       const [cfData,prData,clData,rdvData,cfgData]=await Promise.all([
-        fb("coiffeurs"),fb("prestations"),fb("clients"),fb("rdvs"),fb("config_salon")]);
+        fb("coiffeurs"),fb("prestations"),fb("clients"),fb("rdv"),fb("config_salon")]);
       const co=transformCoiffeurs(cfData);
       const pr=transformPrestations(prData);
       const cl=transformClients(clData);
@@ -1358,7 +1358,7 @@ function App(){
     setRdvs(prev=>[...prev,{...rdvData,id:rdvId}]);
     /* Firebase multi-path write */
     const updates={};
-    updates[`rdvs/${rdvId}`]=rdvData;
+    updates[`rdv/${rdvId}`]=rdvData;
     updates[`rdv_confirmes/${rdvId}`]={coiffeur_id,date_heure:dateHeure,duree_totale_minutes:prestation?.duree_minutes||60};
     if(phone)updates[`rdv_by_phone/${phone}/${rdvId}`]=true;
     await fbMultiPatch(updates);
@@ -1367,7 +1367,7 @@ function App(){
       summary:`${client.nom} ${client.prenom} - ${prestation?.nom_court||"RDV"}`,
       description:`👤 ${client.prenom} ${client.nom}\n📞 ${client.telephone||"N/A"}\n✂️ ${prestation?.nom_court||""}\n💰 ${prestation?.prix||0}€\n⏱️ ${prestation?.duree_minutes||60} min\nSource: planning`,
       start:dateHeure,end:dateHeureFin});
-    if(gcRes?.google_event_id)await fbPatch(`rdvs/${rdvId}`,{google_event_id:gcRes.google_event_id});
+    if(gcRes?.google_event_id)await fbPatch(`rdv/${rdvId}`,{google_event_id:gcRes.google_event_id});
   };
   const navItems=[{id:"planning",l:"Planning",i:Calendar},{id:"clients",l:"Clients",i:Users},{id:"prestations",l:"Prestations",i:Scissors},
     {id:"coiffeurs",l:"Équipe",i:User},{id:"salon",l:"Salon",i:Store},{id:"dashboard",l:"Dashboard",i:BarChart3}];
@@ -1466,14 +1466,14 @@ function App(){
         onCancel={async id=>{
           setRdvs(rdvs.map(r=>r.id===id?{...r,statut:"annule"}:r));
           const rdv=rdvs.find(r=>r.id===id);
-          await fbMultiPatch({[`rdvs/${id}/statut`]:"annule",[`rdv_confirmes/${id}`]:null});
+          await fbMultiPatch({[`rdv/${id}/statut`]:"annule",[`rdv_confirmes/${id}`]:null});
           if(rdv?.google_event_id){const co=coiffeurs.find(c=>c.id===rdv.coiffeur_id);
             await gcalSync("delete",{calendar_id:co?.google_calendar_id||"",event_id:rdv.google_event_id});}
         }}
         onUpdate={async(id,data)=>{
           setRdvs(rdvs.map(r=>r.id===id?{...r,...data}:r));
           const oldRdv=rdvs.find(r=>r.id===id);
-          await fbPatch(`rdvs/${id}`,data);
+          await fbPatch(`rdv/${id}`,data);
           await fbPatch(`rdv_confirmes/${id}`,{coiffeur_id:data.coiffeur_id||oldRdv?.coiffeur_id,
             date_heure:data.date_heure||oldRdv?.date_heure,duree_totale_minutes:data.duree_totale_minutes||oldRdv?.duree_totale_minutes});
           if(oldRdv?.google_event_id){const co=coiffeurs.find(c=>c.id===(data.coiffeur_id||oldRdv.coiffeur_id));
