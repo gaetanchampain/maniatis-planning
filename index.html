@@ -20,7 +20,9 @@ body{font-family:'Outfit',sans-serif;overflow:hidden}
 </head>
 <body>
 <div id="root"></div>
-<script type="text/babel" data-type="module">
+<script>window.onerror=function(m,s,l,c,e){document.getElementById('root').innerHTML='<pre style="color:red;padding:20px">'+m+'\nLine: '+l+', Col: '+c+'</pre>';}</script>
+<script type="text/babel" data-presets="react">
+const _lr = window.lucideReact || window.LucideReact || window.lucide;
 const { useState, useMemo, useEffect, useRef, useCallback } = React;
 const {
   ChevronLeft, ChevronRight, Plus, X, Search, Scissors,
@@ -28,7 +30,7 @@ const {
   Save, Check, Eye, EyeOff, Sun, Moon, BarChart3,
   TrendingUp, DollarSign, PieChart, Activity, ArrowUpDown,
   Store, Clock, Filter, AlertTriangle
-} = lucideReact;
+} = _lr;
 
 
 const FONT_URL = "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap";
@@ -1465,7 +1467,7 @@ function App(){
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+try { ReactDOM.createRoot(document.getElementById('root')).render(<App/>); } catch(e) { document.getElementById('root').innerHTML = '<pre style="color:red;padding:20px">'+e.message+'\n'+e.stack+'</pre>'; }
 </script>
 </body>
 </html>
