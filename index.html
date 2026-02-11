@@ -1145,7 +1145,11 @@ function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
         <Btn variant="secondary" onClick={()=>setEm(null)} T={T}>Annuler</Btn><div style={{flex:1}}/>
         <Btn variant="accent" icon={Save} T={T} onClick={async()=>{
           if(em==="new"){const newId="COIF"+String(Date.now()).slice(-6);const nc={...f,id:newId,actif:true};
-            setCoiffeurs([...coiffeurs,nc]);await fbPut(`coiffeurs/${newId}`,nc);}
+            setCoiffeurs([...coiffeurs,nc]);await fbPut(`coiffeurs/${newId}`,nc);
+            /* Auto-create Google Calendar + QR */
+            try{const gcr=await gcalSync("create_calendar",{coiffeur_prenom:f.prenom||"Coiffeur",coiffeur_id:newId});
+              if(gcr?.google_calendar_id){const updated={...nc,google_calendar_id:gcr.google_calendar_id};
+                setCoiffeurs(prev=>prev.map(c=>c.id===newId?updated:c));}}catch(e){console.error("Auto GCal creation failed:",e);}}
           else{setCoiffeurs(coiffeurs.map(c=>c.id===em?{...c,...f}:c));await fbPatch(`coiffeurs/${em}`,f);}
           setEm(null);}}>Enregistrer</Btn></div></Modal></div>);
 }
