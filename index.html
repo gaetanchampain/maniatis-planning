@@ -1144,12 +1144,18 @@ function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
       <div style={{display:"flex",gap:8,marginTop:16,borderTop:`1px solid ${T.border}`,paddingTop:16}}>
         <Btn variant="secondary" onClick={()=>setEm(null)} T={T}>Annuler</Btn><div style={{flex:1}}/>
         <Btn variant="accent" icon={Save} T={T} onClick={async()=>{
-          if(em==="new"){const newId="COIF"+String(Date.now()).slice(-6);const nc={...f,id:newId,actif:true};
-            setCoiffeurs([...coiffeurs,nc]);await fbPut(`coiffeurs/${newId}`,nc);
+          if(em==="new"){const newId="COIF"+String(Date.now()).slice(-6);
+            const maxOrdre=Math.max(0,...coiffeurs.map(c=>c.ordre_affichage||0));
+            const nc={...f,id:newId,actif:true,ordre_affichage:maxOrdre+1};
+            await fbPut(`coiffeurs/${newId}`,nc);
             /* Auto-create Google Calendar + QR */
+            let calId="";
             try{const gcr=await gcalSync("create_calendar",{coiffeur_prenom:f.prenom||"Coiffeur",coiffeur_id:newId});
-              if(gcr?.google_calendar_id){const updated={...nc,google_calendar_id:gcr.google_calendar_id};
-                setCoiffeurs(prev=>prev.map(c=>c.id===newId?updated:c));}}catch(e){console.error("Auto GCal creation failed:",e);}}
+              if(gcr?.google_calendar_id){calId=gcr.google_calendar_id;}}catch(e){console.error("GCal creation error:",e);}
+            const final={...nc,google_calendar_id:calId||""};
+            setCoiffeurs(prev=>[...prev,final]);
+            if(calId){alert("✅ Fiche créée + calendrier Google Calendar créé automatiquement !");}
+            else{alert("⚠️ Fiche créée, mais le calendrier Google n'a pas pu être créé automatiquement. Vérifiez la connexion réseau.");}}
           else{setCoiffeurs(coiffeurs.map(c=>c.id===em?{...c,...f}:c));await fbPatch(`coiffeurs/${em}`,f);}
           setEm(null);}}>Enregistrer</Btn></div></Modal></div>);
 }
