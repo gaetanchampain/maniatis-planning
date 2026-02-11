@@ -210,14 +210,13 @@ function offStyle(d,c,h,m,sc,T){
   return null;
 }
 function isOffSlot(d,c,h,m,sc){return offStyle(d,c,h,m,sc,{offBg:"x",offColor:"x"})!==null;}
-/* For superposed views: check all visible coiffeurs */
+/* For superposed views: only gray when exactly 1 coiffeur is filtered */
 function allOffStyle(d,h,m,coiffeurs,cf,sc,T){
-  const active=coiffeurs.filter(c=>c.actif&&(cf.length===0||cf.includes(c.id)));
-  if(active.length===0)return null;
-  const styles=active.map(c=>offStyle(d,c,h,m,sc,T));
-  if(styles.every(s=>s===T.offBg))return T.offBg;
-  if(styles.every(s=>s===null))return null;
-  return T.offColor;
+  if(cf.length!==1)return null; /* Multi/all view: never gray */
+  const c=coiffeurs.find(x=>x.id===cf[0]&&x.actif);
+  if(!c)return null;
+  return offStyle(d,c,h,m,sc,T);
+}
 }
 
 /* PRIMITIVES */
@@ -323,8 +322,8 @@ function WeekView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
                 const rh=rdvs.filter(r=>{if(r.statut!=="confirme")return false;if(cf.length>0&&!cf.includes(r.coiffeur_id))return false;
                   const rd=new Date(r.date_heure);return same(rd,d)&&rd.getHours()===h&&rd.getMinutes()===m;});
                 const past=isPast(d,h,m);const ac=allConge(d);const offBg=!ac?allOffStyle(d,h,m,coiffeurs,cf,30,T):null;
-                return(<div key={`${fd(d)}-${label}`} onClick={()=>rh.length===0&&!ac&&!offBg&&onSlot(d,h,m)}
-                  style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:`1px solid ${T.surface2}`,padding:1,height:H,cursor:ac||offBg?"not-allowed":"pointer",position:"relative",
+                return(<div key={`${fd(d)}-${label}`} onClick={()=>rh.length===0&&!ac&&onSlot(d,h,m)}
+                  style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:`1px solid ${T.surface2}`,padding:1,height:H,cursor:ac?"not-allowed":"pointer",position:"relative",
                     background:ac?T.congeBgCell:offBg||( same(d,n)?(past?T.surface2+"40":T.surface2+"80"):"transparent")}}>
                   {rh.map(r=>{const co=coiffeurs.find(c=>c.id===r.coiffeur_id),pH=r.duree_totale_minutes/30*H;
                     const rdvPast=new Date(new Date(r.date_heure).getTime()+r.duree_totale_minutes*60000)<n;
@@ -413,7 +412,7 @@ function WeekSbsView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
                   const rd=new Date(r.date_heure);return same(rd,d)&&rd.getHours()===h&&rd.getMinutes()===m;});
                 const past=new Date(d).setHours(h,m)<n;
                 const bg=cg?T.congeBgCell:offBg||(same(d,n)&&past?T.surface2+"40":same(d,n)?T.accent+"08":"transparent");
-                return(<div key={`${fd(d)}-${c.id}-${label}`} onClick={()=>!cg&&!offBg&&rh.length===0&&onSlot(d,h,m,c.id)}
+                return(<div key={`${fd(d)}-${c.id}-${label}`} onClick={()=>!cg&&rh.length===0&&onSlot(d,h,m,c.id)}
                   style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:ci===0?`3px solid ${T.border}`:`1px solid ${T.surface3}`,
                     padding:1,height:H,cursor:cg||offBg?"not-allowed":"pointer",position:"relative",background:bg}}>
                   {rh.map(r=>{const pH=r.duree_totale_minutes/30*H;
@@ -475,8 +474,8 @@ function DayView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
                 const cg=isConge(c.id);const past=isPast(h,m);const offBg=!cg?offStyle(currentDate,c,h,m,30,T):null;
                 const rh=rdvs.filter(r=>{if(r.statut!=="confirme"||r.coiffeur_id!==c.id)return false;const rd=new Date(r.date_heure);return same(rd,currentDate)&&rd.getHours()===h&&rd.getMinutes()===m;});
                 const bg=cg?T.congeBgCell:offBg||(past?(T.surface2+"40"):"transparent");
-                return(<div key={`${c.id}-${label}`} onClick={()=>!cg&&!offBg&&rh.length===0&&onSlot(currentDate,h,m,c.id)}
-                  style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:`1px solid ${T.surface2}`,padding:1,height:H,cursor:cg||offBg?"not-allowed":"pointer",position:"relative",
+                return(<div key={`${c.id}-${label}`} onClick={()=>!cg&&rh.length===0&&onSlot(currentDate,h,m,c.id)}
+                  style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:`1px solid ${T.surface2}`,padding:1,height:H,cursor:cg?"not-allowed":"pointer",position:"relative",
                     background:bg}}>
                   {rh.map(r=>{const pH=r.duree_totale_minutes/30*H;
                     const rdvPast=new Date(new Date(r.date_heure).getTime()+r.duree_totale_minutes*60000)<n;
@@ -546,8 +545,8 @@ function DayStackView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
             return(<div key={`dss-${label}`} style={{display:"contents"}}>
               <div style={{borderBottom:`1px solid ${T.surface2}`,padding:"0 6px",display:"flex",alignItems:"flex-start",justifyContent:"flex-end",fontSize:10,color:T.text3,fontWeight:500,height:H,paddingTop:2}}>
                 {m===0?label:""}</div>
-              <div onClick={()=>!ac&&!offBg&&rh.length===0&&onSlot(currentDate,h,m)}
-                style={{borderBottom:`1px solid ${T.surface2}`,padding:1,height:H,cursor:ac||offBg?"not-allowed":"pointer",position:"relative",
+              <div onClick={()=>!ac&&rh.length===0&&onSlot(currentDate,h,m)}
+                style={{borderBottom:`1px solid ${T.surface2}`,padding:1,height:H,cursor:ac?"not-allowed":"pointer",position:"relative",
                   background:ac?T.congeBgCell:offBg||(past?(T.surface2+"40"):"transparent")}}>
                 {rh.map(r=>{const co=coiffeurs.find(c=>c.id===r.coiffeur_id),pH=r.duree_totale_minutes/30*H;
                   const rdvPast=new Date(new Date(r.date_heure).getTime()+r.duree_totale_minutes*60000)<n;
