@@ -1291,8 +1291,12 @@ function SalonP({salon,setSalon,T}){
 /* MAIN */
 function App(){
   const [dark,setDark]=useState(false);
-  const [curDate,setCurDate]=useState(new Date());const [view,setView]=useState("week");const [page,setPage]=useState("planning");
-  const [cfState,setCfState]=useState([]);const [layout,setLayout]=useState("stack");
+  const [curDate,setCurDate]=useState(new Date());const [view,setViewRaw]=useState(()=>localStorage.getItem("mp_view")||"week");
+  const [page,setPageRaw]=useState(()=>{const h=window.location.hash.slice(1);return["planning","clients","prestations","equipe","salon","dashboard"].includes(h)?h:"planning";});
+  const setPage=(p)=>{setPageRaw(p);window.location.hash=p;};
+  const [cfState,setCfState]=useState([]);const [layout,setLayoutRaw]=useState(()=>localStorage.getItem("mp_layout")||"stack");
+  const setLayout=(l)=>{setLayoutRaw(l);localStorage.setItem("mp_layout",l);};
+  const setView=(v)=>{setViewRaw(v);localStorage.setItem("mp_view",v);};
   const [rdvs,setRdvs]=useState([]);const [clients,setClients]=useState([]);
   const [prestations,setPrestas]=useState([]);const [coiffeurs,setCoiffeurs]=useState([]);
   const [salon,setSalon]=useState({ouverture:"09:30",fermeture:"19:00",jours_fermes:["lundi","dimanche"],specialisations:[],fermetures_annuelles:[],accentColor:"#6366f1"});
