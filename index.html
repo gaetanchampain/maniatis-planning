@@ -1,0 +1,1471 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maniatis Planning</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💇</text></svg>">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Outfit',sans-serif;overflow:hidden}
+#root{width:100vw;height:100vh}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(128,128,128,0.3);border-radius:3px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-type="module">
+const { useState, useMemo, useEffect, useRef, useCallback } = React;
+const {
+  ChevronLeft, ChevronRight, Plus, X, Search, Scissors,
+  Users, Calendar, User, Phone, Edit, Trash2, Mail,
+  Save, Check, Eye, EyeOff, Sun, Moon, BarChart3,
+  TrendingUp, DollarSign, PieChart, Activity, ArrowUpDown,
+  Store, Clock, Filter, AlertTriangle
+} = lucideReact;
+
+
+const FONT_URL = "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap";
+
+const LIGHT = {
+  bg:"#f4f4f8",surface:"#ffffff",surface2:"#f8f8fb",surface3:"#eeeff4",
+  offBg:"repeating-linear-gradient(135deg,transparent,transparent 4px,rgba(0,0,0,0.04) 4px,rgba(0,0,0,0.04) 5px)",
+  offColor:"rgba(0,0,0,0.045)",
+  border:"#e2e3ea",border2:"#d0d1da",text:"#111118",text2:"#555566",text3:"#8e8fa3",
+  accent:"#6366f1",accentBg:"linear-gradient(135deg,#6366f1,#818cf8)",
+  cardShadow:"0 1px 4px rgba(0,0,0,0.04)",hoverShadow:"0 4px 16px rgba(0,0,0,0.07)",
+  dangerBg:"#fef2f2",dangerText:"#dc2626",dangerBorder:"#fecaca",
+  congeBg:"#fef9ee",congeBgCell:"#fef9ee",congeText:"#b45309",congeBorder:"#fcd34d",
+};
+const DARK = {
+  bg:"#0a0a0f",surface:"#131318",surface2:"#1a1a22",surface3:"#22222d",
+  offBg:"repeating-linear-gradient(135deg,transparent,transparent 4px,rgba(255,255,255,0.04) 4px,rgba(255,255,255,0.04) 5px)",
+  offColor:"rgba(255,255,255,0.045)",
+  border:"#2a2a36",border2:"#363645",text:"#f0f0f5",text2:"#a0a0b5",text3:"#65657a",
+  accent:"#818cf8",accentBg:"linear-gradient(135deg,#6366f1,#818cf8)",
+  cardShadow:"none",hoverShadow:"0 4px 16px rgba(0,0,0,0.3)",
+  dangerBg:"#2d1215",dangerText:"#f87171",dangerBorder:"#7f1d1d",
+  congeBg:"#422006",congeBgCell:"#422006",congeText:"#fbbf24",congeBorder:"#92400e",
+};
+
+/* FIREBASE CONFIG */
+const FB_URL="https://salon-maniatis-default-rtdb.europe-west1.firebasedatabase.app";
+const FB_AUTH="fqvk01y60VO7iuj1MkFGkrofwXTa1BJuIa62R4If";
+const fb=path=>fetch(`${FB_URL}/${path}.json?auth=${FB_AUTH}`).then(r=>r.json());
+const fbPatch=(path,data)=>fetch(`${FB_URL}/${path}.json?auth=${FB_AUTH}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+const fbPut=(path,data)=>fetch(`${FB_URL}/${path}.json?auth=${FB_AUTH}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+const fbDel=path=>fetch(`${FB_URL}/${path}.json?auth=${FB_AUTH}`,{method:"DELETE"});
+const fbMultiPatch=updates=>fetch(`${FB_URL}/.json?auth=${FB_AUTH}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(updates)});
+const fbObj2Arr=(obj,idKey="id")=>obj?Object.entries(obj).map(([k,v])=>({...v,[idKey]:v[idKey]||k})):[];
+
+/* n8n GCal sync webhook */
+const N8N_GCAL_URL="https://champain.app.n8n.cloud/webhook/planning-gcal-sync";
+async function gcalSync(action,data){
+  try{const r=await fetch(N8N_GCAL_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,...data})});
+    return await r.json();}catch(e){console.error("GCal sync error:",e);return{success:false};}
+}
+
+/* Generate RDV ID like Agent Salon v4.1 */
+function genRdvId(){const n=new Date();const p=s=>String(s).padStart(2,"0");
+  return`RDV${n.getFullYear()}${p(n.getMonth()+1)}${p(n.getDate())}${p(n.getHours())}${p(n.getMinutes())}${p(n.getSeconds())}${String(Math.floor(Math.random()*1000)).padStart(3,"0")}`;}
+
+
+/* Transform Firebase → Planning format */
+function transformSalon(cfg,coiffeurs){
+  const jf=(cfg?.jours_fermes||"lundi,dimanche").split(",").map(s=>s.trim().toLowerCase());
+  /* Extract earliest open / latest close from horaires_ouverture */
+  const ho=cfg?.horaires_ouverture||{};const times=Object.values(ho).map(v=>{const[d,f]=v.split("-");return{d,f};});
+  const ouv=times.length?times.reduce((a,b)=>a.d<b.d?a:b).d:"09:30";
+  const fer=times.length?times.reduce((a,b)=>a.f>b.f?a:b).f:"19:00";
+  /* Derive specialisations from coiffeurs */
+  const specs=[...new Set((coiffeurs||[]).flatMap(c=>c.specialisations||[]))].sort();
+  return{ouverture:ouv,fermeture:fer,jours_fermes:jf,pause:cfg?.pause||"12:30-13:30",
+    specialisations:specs.length?specs:["femme","homme","enfant","coloriste","barbier"],
+    fermetures_annuelles:cfg?.fermetures_annuelles||[],
+    nom:cfg?.nom_salon||"Maniatis",adresse:cfg?.adresse||"",
+    accentColor:cfg?.accentColor||"#6366f1"};
+}
+function transformCoiffeurs(obj){
+  return fbObj2Arr(obj).map(c=>({...c,
+    specialisations:c.specialisations||[],conges:c.conges||[],
+    actif:c.actif!==false,couleur:c.couleur||"#6366f1",
+    horaires:c.horaires||{},pause_dejeuner:c.pause_dejeuner||"12:30-13:30"
+  })).sort((a,b)=>(a.ordre_affichage||99)-(b.ordre_affichage||99));
+}
+function transformPrestations(obj){
+  return fbObj2Arr(obj).map(p=>({...p,
+    specialisation:p.specialisation_requise||p.specialisation||"",
+    actif:p.actif!==false
+  })).sort((a,b)=>(a.ordre_affichage||99)-(b.ordre_affichage||99));
+}
+function transformClients(obj){
+  return fbObj2Arr(obj).map(c=>({...c,
+    coiffeur_prefere:c.coiffeur_habituel_id||c.coiffeur_prefere||"",
+    nombre_visites:c.nombre_visites||0
+  }));
+}
+function transformRdvs(obj){return fbObj2Arr(obj);}
+
+/* Compute lighter shade for gradient */
+function lightenHex(hex,amount=0.25){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  const lr=Math.min(255,Math.round(r+(255-r)*amount)),lg=Math.min(255,Math.round(g+(255-g)*amount)),lb=Math.min(255,Math.round(b+(255-b)*amount));
+  return`#${lr.toString(16).padStart(2,"0")}${lg.toString(16).padStart(2,"0")}${lb.toString(16).padStart(2,"0")}`;
+}
+function makeTheme(base,accentColor){
+  if(!accentColor)return base;
+  const lighter=lightenHex(accentColor,0.3);
+  return{...base,accent:accentColor,accentBg:`linear-gradient(135deg,${accentColor},${lighter})`};
+}
+
+/* 56 DISTINCT COLORS - 8x7 grid, max contrast between neighbors */
+const COLORS=[
+  "#ef4444","#f97316","#f59e0b","#eab308","#84cc16","#22c55e","#10b981","#14b8a6",
+  "#06b6d4","#0ea5e9","#3b82f6","#6366f1","#8b5cf6","#a855f7","#d946ef","#ec4899",
+  "#f43f5e","#fb7185","#fdba74","#fde047","#bef264","#6ee7b7","#5eead4","#67e8f9",
+  "#7dd3fc","#93c5fd","#a5b4fc","#c4b5fd","#d8b4fe","#f0abfc","#f9a8d4","#fda4af",
+  "#b91c1c","#c2410c","#a16207","#4d7c0f","#15803d","#0f766e","#0369a1","#1d4ed8",
+  "#4338ca","#6d28d9","#7e22ce","#a21caf","#be185d","#9f1239","#78350f","#365314",
+  "#134e4a","#164e63","#1e3a5f","#312e81","#4c1d95","#701a75","#831843","#3f3f46",
+];
+
+const SPECIALISATIONS_LIST=["femme","homme","enfant","coloriste","barbier"];
+
+const JOURS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
+const JALL=["lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche"];
+const JC=["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];
+const MOIS=["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+function wkStart(d){const r=new Date(d);r.setDate(d.getDate()-((d.getDay()+6)%7));r.setHours(0,0,0,0);return r;}
+function wkDays(d){const s=wkStart(d);return Array.from({length:7},(_,i)=>{const r=new Date(s);r.setDate(s.getDate()+i);return r;});}
+function same(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();}
+function fd(d){return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function ft(h,m){return`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;}
+function mGrid(d){const f=new Date(d.getFullYear(),d.getMonth(),1),l=new Date(d.getFullYear(),d.getMonth()+1,0),sd=(f.getDay()+6)%7,ds=[];
+  for(let i=0;i<sd;i++){const x=new Date(f);x.setDate(f.getDate()-(sd-i));ds.push(x);}
+  for(let i=1;i<=l.getDate();i++)ds.push(new Date(d.getFullYear(),d.getMonth(),i));
+  while(ds.length%7!==0){const x=new Date(l);x.setDate(l.getDate()+(ds.length-sd-l.getDate()+1));ds.push(x);}return ds;}
+function cLabel(c){return c?`${c.prenom} ${c.nom.charAt(0)}.`:"?";}
+/* Filter week days based on salon open days */
+function openDays(currentDate,salon){const all=wkDays(currentDate);const closed=salon?.jours_fermes||[];
+  return all.filter(d=>!closed.includes(JOURS[d.getDay()]));}
+function parseH(t){const[h,m]=(t||"09:00").split(":").map(Number);return{h,m};}
+/* Check if a date is a salon annual closure */
+function isSalonFerme(d,salon){return(salon?.fermetures_annuelles||[]).includes(fd(d));}
+function mkSlots(salon){const op=parseH(salon?.ouverture);const cl=parseH(salon?.fermeture);const startH=Math.max(0,op.h-1);const endH=Math.min(23,cl.h+1);
+  const s=[];for(let h=startH;h<=endH;h++)for(let m=0;m<60;m+=30)s.push({h,m,label:ft(h,m)});return s;}
+function mkTimes(salon){const op=parseH(salon?.ouverture);const cl=parseH(salon?.fermeture);const startH=Math.max(0,op.h-1);const endH=Math.min(23,cl.h+1);
+  const t=[];for(let h=startH;h<=endH;h++)for(let m=0;m<60;m+=15)t.push({value:ft(h,m),label:ft(h,m)});return t;}
+
+/* Returns background style for off-hours: null=working, string=off/partial */
+function offStyle(d,c,h,m,sc,T){
+  const jourFr=JOURS[d.getDay()];
+  const jourH=c.horaires?.[jourFr];
+  if(!jourH||!jourH.debut||!jourH.fin)return T.offBg;
+  if(typeof h==='undefined')return null;
+  const s0=h*60+(m||0),s1=s0+(sc||15);
+  const [dH,dM]=jourH.debut.split(':').map(Number);
+  const [fH,fM]=jourH.fin.split(':').map(Number);
+  const deb=dH*60+dM,fin=fH*60+fM,dur=s1-s0;
+  if(s1<=deb||s0>=fin)return T.offBg;
+  if(s0>=deb&&s1<=fin)return null;
+  if(s0<deb){const p=Math.round((deb-s0)/dur*100);return`linear-gradient(to bottom,${T.offColor} ${p}%,transparent ${p}%)`;}
+  if(s1>fin){const p=Math.round((fin-s0)/dur*100);return`linear-gradient(to bottom,transparent ${p}%,${T.offColor} ${p}%)`;}
+  return null;
+}
+function isOffSlot(d,c,h,m,sc){return offStyle(d,c,h,m,sc,{offBg:"x",offColor:"x"})!==null;}
+/* For superposed views: check all visible coiffeurs */
+function allOffStyle(d,h,m,coiffeurs,cf,sc,T){
+  const active=coiffeurs.filter(c=>c.actif&&(cf.length===0||cf.includes(c.id)));
+  if(active.length===0)return null;
+  const styles=active.map(c=>offStyle(d,c,h,m,sc,T));
+  if(styles.every(s=>s===T.offBg))return T.offBg;
+  if(styles.every(s=>s===null))return null;
+  return T.offColor;
+}
+
+/* PRIMITIVES */
+function Modal({open,onClose,title,children,width,T}){
+  if(!open)return null;
+  return(<div style={{position:"fixed",inset:0,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={onClose}>
+    <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.35)",backdropFilter:"blur(6px)"}}/>
+    <div onClick={e=>e.stopPropagation()} style={{position:"relative",background:T.surface,borderRadius:20,width:width||500,maxWidth:"95vw",maxHeight:"90vh",overflow:"auto",border:`1px solid ${T.border}`,boxShadow:T.hoverShadow}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"20px 24px",borderBottom:`1px solid ${T.border}`}}>
+        <h2 style={{fontSize:17,fontWeight:700,color:T.text,margin:0}}>{title}</h2>
+        <button onClick={onClose} style={{background:T.surface2,border:"none",cursor:"pointer",padding:6,borderRadius:8,color:T.text3,display:"flex"}}><X size={16}/></button></div>
+      <div style={{padding:24}}>{children}</div></div></div>);}
+
+function Inp({label,value,onChange,placeholder,type,icon:Ic,T}){
+  return(<div style={{marginBottom:14}}>
+    {label&&<label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em"}}>{label}</label>}
+    <div style={{position:"relative"}}>
+      {Ic&&<Ic size={15} style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:T.text3}}/>}
+      <input type={type||"text"} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+        style={{width:"100%",padding:"10px 12px",paddingLeft:Ic?36:12,border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:13,fontFamily:"'Outfit',sans-serif",
+          outline:"none",background:T.surface2,color:T.text,boxSizing:"border-box"}}/></div></div>);}
+
+function Sel({label,value,onChange,options,T}){
+  return(<div style={{marginBottom:14}}>
+    {label&&<label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em"}}>{label}</label>}
+    <select value={value} onChange={e=>onChange(e.target.value)}
+      style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:13,fontFamily:"'Outfit',sans-serif",
+        outline:"none",background:T.surface2,color:T.text,cursor:"pointer",boxSizing:"border-box"}}>{options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></div>);}
+
+function Btn({children,onClick,variant,icon:Ic,small,disabled,T}){
+  const s={primary:{background:T.accentBg,color:"#fff",border:"none"},secondary:{background:T.surface2,color:T.text2,border:`1.5px solid ${T.border}`},
+    danger:{background:T.dangerBg,color:T.dangerText,border:`1.5px solid ${T.dangerBorder}`},ghost:{background:"transparent",color:T.text3,border:"none"},
+    accent:{background:T.accentBg,color:"#fff",border:"none"}}[variant||"primary"];
+  return(<button onClick={onClick} disabled={disabled}
+    style={{...s,display:"inline-flex",alignItems:"center",gap:6,padding:small?"6px 12px":"10px 18px",borderRadius:10,fontSize:small?11:13,fontWeight:600,
+      cursor:disabled?"not-allowed":"pointer",fontFamily:"'Outfit',sans-serif",opacity:disabled?0.4:1}}>{Ic&&<Ic size={small?13:15}/>}{children}</button>);}
+
+function Bdg({children,color,small,T}){
+  return <span style={{display:"inline-flex",alignItems:"center",padding:small?"2px 8px":"4px 12px",borderRadius:20,fontSize:small?10:11,fontWeight:600,
+    background:color?color+"18":T.surface3,color:color||T.text2,whiteSpace:"nowrap"}}>{children}</span>;}
+
+/* INDICATORS */
+function Indicators({rdvs,view,currentDate,cf,coiffeurs,salon,T}){
+  const filtered=useMemo(()=>rdvs.filter(r=>{
+    if(r.statut!=="confirme")return false;if(cf.length>0&&!cf.includes(r.coiffeur_id))return false;
+    const rd=new Date(r.date_heure);
+    if(view==="day")return same(rd,currentDate);
+    if(view==="week"){const ws=wkStart(currentDate),we=new Date(ws);we.setDate(ws.getDate()+6);return rd>=ws&&rd<=we;}
+    return rd.getMonth()===currentDate.getMonth()&&rd.getFullYear()===currentDate.getFullYear();
+  }),[rdvs,view,currentDate,cf]);
+  const nb=filtered.length,ca=filtered.reduce((s,r)=>s+r.prix_total,0);
+  const openPerWeek=7-(salon?.jours_fermes||[]).length;
+  const nj=view==="day"?1:view==="week"?openPerWeek:new Date(currentDate.getFullYear(),currentDate.getMonth()+1,0).getDate();
+  const moyJ=nj>0?(ca/nj):0;
+  const vl=view==="day"?"aujourd'hui":view==="week"?"cette semaine":"ce mois";
+  const vc=coiffeurs.filter(c=>c.actif&&(cf.length===0||cf.includes(c.id)));
+  return(
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",flexShrink:0}}>
+      <div style={{flex:"1 1 150px",minWidth:140,background:T.surface,borderRadius:14,padding:"14px 18px",border:`1px solid ${T.border}`,boxShadow:T.cardShadow,display:"flex",alignItems:"center",gap:14}}>
+        <div style={{width:40,height:40,borderRadius:12,background:T.accentBg,display:"flex",alignItems:"center",justifyContent:"center"}}><Calendar size={18} color="#fff"/></div>
+        <div><div style={{fontSize:22,fontWeight:800,color:T.text,lineHeight:1}}>{nb}</div><div style={{fontSize:10,color:T.text3,fontWeight:500,marginTop:2}}>RDV {vl}</div></div></div>
+      <div style={{flex:"1 1 150px",minWidth:140,background:T.surface,borderRadius:14,padding:"14px 18px",border:`1px solid ${T.border}`,boxShadow:T.cardShadow,display:"flex",alignItems:"center",gap:14}}>
+        <div style={{width:40,height:40,borderRadius:12,background:"linear-gradient(135deg,#10b981,#34d399)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:800,color:"#fff"}}>€</div>
+        <div><div style={{fontSize:22,fontWeight:800,color:T.text,lineHeight:1}}>{ca.toLocaleString()}€</div><div style={{fontSize:10,color:T.text3,fontWeight:500,marginTop:2}}>Chiffre d'affaires {vl}</div>{nj>1&&<div style={{fontSize:9,color:T.accent,fontWeight:600,marginTop:1}}>Moy. {Math.round(moyJ)}€/jour ouvert</div>}</div></div>
+      {vc.map(c=>{const cnt=filtered.filter(r=>r.coiffeur_id===c.id).length,cca=filtered.filter(r=>r.coiffeur_id===c.id).reduce((s,r)=>s+r.prix_total,0);
+        return(<div key={c.id} style={{flex:"1 1 120px",minWidth:110,background:T.surface,borderRadius:14,padding:"14px 18px",border:`1px solid ${T.border}`,borderLeft:`3px solid ${c.couleur}`,boxShadow:T.cardShadow}}>
+          <div style={{fontSize:12,fontWeight:600,color:c.couleur,marginBottom:4}}>{cLabel(c)}</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:8}}><span style={{fontSize:20,fontWeight:800,color:T.text,lineHeight:1}}>{cnt}</span><span style={{fontSize:10,color:T.text3}}>{cca}€</span></div>
+        </div>);})}
+    </div>);
+}
+
+/* WEEK VIEW */
+function WeekView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
+  const slots=mkSlots(salon),days=openDays(currentDate,salon),H=28;
+  const [tick,setTick]=useState(Date.now());
+  useEffect(()=>{const iv=setInterval(()=>setTick(Date.now()),60000);return()=>clearInterval(iv);},[]);
+  const n=new Date(tick);
+  const isConge=(d,coifId)=>{if(isSalonFerme(d,salon))return true;const ds=fd(d);const c=coiffeurs.find(x=>x.id===coifId);return c?.conges?.includes(ds);};
+  const isPast=(d,h,m)=>{const slot=new Date(d);slot.setHours(h,m,0,0);return slot<n;};
+  const anyConge=(d)=>{const ds=fd(d);return coiffeurs.some(c=>c.actif&&(cf.length===0||cf.includes(c.id))&&c.conges?.includes(ds));};
+  const allConge=(d)=>{if(isSalonFerme(d,salon))return true;const ds=fd(d);const active=coiffeurs.filter(c=>c.actif&&(cf.length===0||cf.includes(c.id)));return active.length>0&&active.every(c=>c.conges?.includes(ds));};
+  return(
+    <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
+      <div style={{overflow:"auto",flex:1}}>
+        <div style={{display:"grid",gridTemplateColumns:`52px repeat(${days.length},1fr)`,minWidth:700,position:"sticky",top:0,zIndex:30,background:T.bg,borderBottom:`1px solid ${T.border}`}}>
+        <div style={{padding:8}}/>
+        {days.map(d=>{const isToday=same(d,n);const ac=allConge(d);
+          return(<div key={fd(d)} style={{padding:"10px 8px",textAlign:"center",background:isToday?T.surface2:ac?T.congeBg:T.bg,position:"relative"}}>
+          <div style={{fontSize:10,fontWeight:700,color:isToday?T.accent:T.text3,textTransform:"uppercase",letterSpacing:"0.1em"}}>{JC[d.getDay()]}</div>
+          <div style={{fontSize:18,fontWeight:800,color:isToday?T.accent:T.text,marginTop:2}}>{d.getDate()}</div>
+          {ac&&<div style={{fontSize:8,color:T.congeText,fontWeight:700,marginTop:1}}>{isSalonFerme(d,salon)?"FERMÉ":"CONGÉ"}</div>}
+          {isToday&&<div style={{position:"absolute",bottom:0,left:"15%",right:"15%",height:3,background:T.accent,borderRadius:"3px 3px 0 0"}}/>}
+        </div>);})}
+      </div>
+      <div style={{position:"relative"}}>
+        <div style={{display:"grid",gridTemplateColumns:`52px repeat(${days.length},1fr)`,minWidth:700,position:"relative"}}>
+          {slots.map(({h,m,label})=>(
+            <div key={`ws-${label}`} style={{display:"contents"}}>
+              <div style={{borderBottom:`1px solid ${T.surface2}`,padding:"0 6px",display:"flex",alignItems:"flex-start",justifyContent:"flex-end",fontSize:10,color:T.text3,fontWeight:500,height:H,paddingTop:2}}>
+                {m===0?label:""}</div>
+              {days.map(d=>{
+                const rh=rdvs.filter(r=>{if(r.statut!=="confirme")return false;if(cf.length>0&&!cf.includes(r.coiffeur_id))return false;
+                  const rd=new Date(r.date_heure);return same(rd,d)&&rd.getHours()===h&&rd.getMinutes()===m;});
+                const past=isPast(d,h,m);const ac=allConge(d);const offBg=!ac?allOffStyle(d,h,m,coiffeurs,cf,30,T):null;
+                return(<div key={`${fd(d)}-${label}`} onClick={()=>rh.length===0&&!ac&&!offBg&&onSlot(d,h,m)}
+                  style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:`1px solid ${T.surface2}`,padding:1,height:H,cursor:ac||offBg?"not-allowed":"pointer",position:"relative",
+                    background:ac?T.congeBgCell:offBg||( same(d,n)?(past?T.surface2+"40":T.surface2+"80"):"transparent")}}>
+                  {rh.map(r=>{const co=coiffeurs.find(c=>c.id===r.coiffeur_id),pH=r.duree_totale_minutes/30*H;
+                    const rdvPast=new Date(new Date(r.date_heure).getTime()+r.duree_totale_minutes*60000)<n;
+                    return(<div key={r.id} onClick={e=>{e.stopPropagation();onRdv(r);}}
+                      style={{position:"absolute",left:2,right:2,top:1,height:pH-3,borderRadius:pH<35?5:8,padding:pH<35?"2px 6px":"4px 8px",cursor:"pointer",overflow:"hidden",zIndex:10,
+                        background:co?co.couleur+(rdvPast?"10":"18"):T.surface3,borderLeft:`3px solid ${co?co.couleur+(rdvPast?"60":"ff"):T.text3}`,
+                        opacity:rdvPast?0.55:1}}>
+                      {pH<35?<div style={{fontSize:9,fontWeight:700,color:co?co.couleur:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.client_prenom} {r.client_nom?.charAt(0)}. · {r.prestations_noms} · {r.prix_total}€</div>
+                      :<><div style={{fontSize:11,fontWeight:700,color:co?co.couleur:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.client_prenom} {r.client_nom}</div>
+                      <div style={{fontSize:9,color:T.text3,marginTop:1}}>{r.prestations_noms} · {r.prix_total}€</div></>}
+                    </div>);})}
+                </div>);})}
+            </div>))}
+        </div>
+        {/* Current time indicator */}
+        {days.some(d=>same(d,n))&&(()=>{
+          const startH=Math.max(0,parseH(salon?.ouverture).h-1);
+          const mins=(n.getHours()-startH)*60+n.getMinutes();const totalSlots=slots.length;if(mins<0||mins>totalSlots*30)return null;
+          const top=mins/30*H;const dayIdx=days.findIndex(d=>same(d,n));if(dayIdx<0)return null;
+          const colCount=days.length;const colW=100/colCount;const left=((dayIdx)*colW);
+          return(<div style={{position:"absolute",top,left:`calc(52px + ${left}% - 4px)`,width:`calc(${colW}% + 8px)`,zIndex:20,pointerEvents:"none"}}>
+            <div style={{display:"flex",alignItems:"center"}}>
+              <div style={{width:8,height:8,borderRadius:4,background:"#ef4444",flexShrink:0}}/>
+              <div style={{flex:1,height:2,background:"#ef4444"}}/>
+            </div></div>);
+        })()}
+      </div>
+      </div>
+    </div>);
+}
+
+/* WEEK SIDE-BY-SIDE VIEW - each coiffeur as sub-column per day */
+function WeekSbsView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
+  const slots=mkSlots(salon),days=openDays(currentDate,salon),H=28;
+  const vc=coiffeurs.filter(c=>c.actif&&(cf.length===0||cf.includes(c.id)));
+  const [tick,setTick]=useState(Date.now());
+  useEffect(()=>{const iv=setInterval(()=>setTick(Date.now()),60000);return()=>clearInterval(iv);},[]);
+  const n=new Date(tick);const totalCols=days.length*vc.length;
+  const isConge=(d,coifId)=>{if(isSalonFerme(d,salon))return true;const ds=fd(d);const c=coiffeurs.find(x=>x.id===coifId);return c?.conges?.includes(ds);};
+  const minW=Math.max(700,totalCols*60+52);
+  return(
+    <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
+      <div style={{overflow:"auto",flex:1}}>
+      {/* Header */}
+      <div style={{position:"sticky",top:0,zIndex:30,background:T.bg,borderBottom:`1px solid ${T.border}`,minWidth:minW}}>
+        {/* Row 1: Day labels spanning all coiffeur columns */}
+        <div style={{display:"grid",gridTemplateColumns:`52px repeat(${days.length},${vc.length}fr)`}}>
+          <div/>
+          {days.map(d=>{const isToday=same(d,n);
+            return(<div key={`dl-${fd(d)}`} style={{textAlign:"center",padding:"6px 4px 2px",borderLeft:`3px solid ${T.border}`,
+              background:isToday?T.accent+"10":"transparent"}}>
+              <span style={{fontSize:11,fontWeight:800,color:isToday?T.accent:T.text,textTransform:"uppercase",letterSpacing:"0.06em"}}>{JC[d.getDay()]}</span>
+              <span style={{fontSize:15,fontWeight:800,color:isToday?T.accent:T.text,marginLeft:6}}>{d.getDate()}</span>
+            </div>);})}
+        </div>
+        {/* Row 2: Coiffeur initials */}
+        <div style={{display:"grid",gridTemplateColumns:`52px repeat(${totalCols},1fr)`}}>
+          <div/>
+          {days.map((d,di)=>vc.map((c,ci)=>{const isToday=same(d,n);const cg=isConge(d,c.id);
+            return(<div key={`ci-${fd(d)}-${c.id}`} style={{padding:"2px 2px 4px",textAlign:"center",
+              borderLeft:ci===0?`3px solid ${T.border}`:`1px solid ${T.surface2}`,
+              background:isToday?T.accent+"10":"transparent",
+              display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1}}>
+              <div style={{width:20,height:20,borderRadius:6,background:cg?T.congeBg:c.couleur+"20",color:cg?T.congeText:c.couleur,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800}}>
+                {c.prenom.charAt(0)}</div>
+              {cg&&<div style={{fontSize:6,color:T.congeText,fontWeight:700,lineHeight:1}}>congé</div>}
+            </div>);}))}
+        </div>
+        {/* Today accent bar spanning full day */}
+        {(()=>{const tdi=days.findIndex(d=>same(d,n));if(tdi<0)return null;
+          const startFrac=(52+tdi*vc.length*(100-52*100/minW)/totalCols);
+          return null;/* handled via background tint above */
+        })()}
+      </div>
+      {/* Grid */}
+      <div style={{position:"relative"}}>
+        <div style={{display:"grid",gridTemplateColumns:`52px repeat(${totalCols},1fr)`,minWidth:minW,position:"relative"}}>
+          {slots.map(({h,m,label})=>(
+            <div key={`sbs-${label}`} style={{display:"contents"}}>
+              <div style={{borderBottom:`1px solid ${T.surface2}`,padding:"0 4px",display:"flex",alignItems:"flex-start",justifyContent:"flex-end",fontSize:10,color:T.text3,fontWeight:500,height:H,paddingTop:2}}>
+                {m===0?label:""}</div>
+              {days.map((d,di)=>vc.map((c,ci)=>{
+                const cg=isConge(d,c.id);
+                const offBg=!cg?offStyle(d,c,h,m,30,T):null;
+                const rh=rdvs.filter(r=>{if(r.statut!=="confirme"||r.coiffeur_id!==c.id)return false;
+                  const rd=new Date(r.date_heure);return same(rd,d)&&rd.getHours()===h&&rd.getMinutes()===m;});
+                const past=new Date(d).setHours(h,m)<n;
+                const bg=cg?T.congeBgCell:offBg||(same(d,n)&&past?T.surface2+"40":same(d,n)?T.accent+"08":"transparent");
+                return(<div key={`${fd(d)}-${c.id}-${label}`} onClick={()=>!cg&&!offBg&&rh.length===0&&onSlot(d,h,m,c.id)}
+                  style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:ci===0?`3px solid ${T.border}`:`1px solid ${T.surface3}`,
+                    padding:1,height:H,cursor:cg||offBg?"not-allowed":"pointer",position:"relative",background:bg}}>
+                  {rh.map(r=>{const pH=r.duree_totale_minutes/30*H;
+                    const rdvPast=new Date(new Date(r.date_heure).getTime()+r.duree_totale_minutes*60000)<n;
+                    return(<div key={r.id} onClick={e=>{e.stopPropagation();onRdv(r);}}
+                      style={{position:"absolute",left:1,right:1,top:1,height:pH-3,borderRadius:pH<25?4:6,padding:pH<25?"1px 3px":"3px 4px",cursor:"pointer",overflow:"hidden",zIndex:10,
+                        background:c.couleur+(rdvPast?"10":"18"),borderLeft:`2px solid ${c.couleur+(rdvPast?"60":"ff")}`,opacity:rdvPast?0.55:1}}>
+                      {pH<25?<div style={{fontSize:7,fontWeight:700,color:c.couleur,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.client_prenom} {r.client_nom?.charAt(0)}. · {r.prix_total}€</div>
+                      :<><div style={{fontSize:9,fontWeight:700,color:c.couleur,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.client_prenom} {r.client_nom?.charAt(0)}.</div>
+                      <div style={{fontSize:7,color:T.text3,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.prestations_noms} · {r.prix_total}€</div></>}
+                    </div>);})}
+                </div>);}))}
+            </div>))}
+        </div>
+        {/* Current time indicator spanning full day */}
+        {days.some(d=>same(d,n))&&(()=>{
+          const startH=Math.max(0,parseH(salon?.ouverture).h-1);
+          const mins=(n.getHours()-startH)*60+n.getMinutes();if(mins<0||mins>slots.length*30)return null;
+          const top=mins/30*H;const tdi=days.findIndex(d=>same(d,n));if(tdi<0)return null;
+          const colStart=tdi*vc.length;const colSpan=vc.length;
+          const leftPct=(colStart/totalCols)*100;const widthPct=(colSpan/totalCols)*100;
+          return(<div style={{position:"absolute",top,left:`calc(52px + ${leftPct}% - 4px)`,width:`calc(${widthPct}% + 8px)`,zIndex:20,pointerEvents:"none"}}>
+            <div style={{display:"flex",alignItems:"center"}}>
+              <div style={{width:8,height:8,borderRadius:4,background:"#ef4444",flexShrink:0}}/>
+              <div style={{flex:1,height:2,background:"#ef4444"}}/>
+            </div></div>);
+        })()}
+      </div>
+      </div>
+    </div>);
+}
+
+/* DAY VIEW */
+function DayView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
+  const slots=mkSlots(salon),vc=coiffeurs.filter(c=>c.actif&&(cf.length===0||cf.includes(c.id))),H=28;
+  const [tick,setTick]=useState(Date.now());
+  useEffect(()=>{const iv=setInterval(()=>setTick(Date.now()),60000);return()=>clearInterval(iv);},[]);
+  const n=new Date(tick);const isToday=same(currentDate,n);
+  const isConge=(coifId)=>{if(isSalonFerme(currentDate,salon))return true;const ds=fd(currentDate);const c=coiffeurs.find(x=>x.id===coifId);return c?.conges?.includes(ds);};
+  const isPast=(h,m)=>{if(!isToday)return currentDate<n;const slot=new Date(currentDate);slot.setHours(h,m,0,0);return slot<n;};
+  return(
+    <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
+      <div style={{overflow:"auto",flex:1}}>
+      <div style={{display:"grid",gridTemplateColumns:`52px repeat(${vc.length},1fr)`,minWidth:Math.max(400,vc.length*180+52),position:"sticky",top:0,zIndex:30,background:T.bg,borderBottom:`1px solid ${T.border}`}}>
+        <div style={{padding:8}}/>
+        {vc.map(c=>{const cg=isConge(c.id);return(<div key={c.id} style={{padding:"10px 8px",textAlign:"center",position:"relative"}}>
+          <div style={{width:36,height:36,borderRadius:12,background:cg?T.congeBg:c.couleur+"20",color:cg?T.congeText:c.couleur,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:800}}>{c.prenom.charAt(0)}</div>
+          <div style={{fontSize:13,fontWeight:700,color:cg?T.congeText:T.text,marginTop:4}}>{cLabel(c)}</div>
+          {cg&&<div style={{fontSize:9,color:T.congeText,fontWeight:700,background:T.congeBg,borderRadius:4,padding:"1px 6px",display:"inline-block",marginTop:2}}>En congé</div>}
+        </div>);})}
+      </div>
+      <div style={{position:"relative"}}>
+        <div style={{display:"grid",gridTemplateColumns:`52px repeat(${vc.length},1fr)`,minWidth:Math.max(400,vc.length*180+52)}}>
+          {slots.map(({h,m,label})=>(
+            <div key={`ds-${label}`} style={{display:"contents"}}>
+              <div style={{borderBottom:`1px solid ${T.surface2}`,padding:"0 6px",display:"flex",alignItems:"flex-start",justifyContent:"flex-end",fontSize:10,color:T.text3,fontWeight:500,height:H,paddingTop:2}}>
+                {m===0?label:""}</div>
+              {vc.map(c=>{
+                const cg=isConge(c.id);const past=isPast(h,m);const offBg=!cg?offStyle(currentDate,c,h,m,30,T):null;
+                const rh=rdvs.filter(r=>{if(r.statut!=="confirme"||r.coiffeur_id!==c.id)return false;const rd=new Date(r.date_heure);return same(rd,currentDate)&&rd.getHours()===h&&rd.getMinutes()===m;});
+                const bg=cg?T.congeBgCell:offBg||(past?(T.surface2+"40"):"transparent");
+                return(<div key={`${c.id}-${label}`} onClick={()=>!cg&&!offBg&&rh.length===0&&onSlot(currentDate,h,m,c.id)}
+                  style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:`1px solid ${T.surface2}`,padding:1,height:H,cursor:cg||offBg?"not-allowed":"pointer",position:"relative",
+                    background:bg}}>
+                  {rh.map(r=>{const pH=r.duree_totale_minutes/30*H;
+                    const rdvPast=new Date(new Date(r.date_heure).getTime()+r.duree_totale_minutes*60000)<n;
+                    return(<div key={r.id} onClick={e=>{e.stopPropagation();onRdv(r);}}
+                      style={{position:"absolute",left:2,right:2,top:1,height:pH-3,borderRadius:pH<35?5:8,padding:pH<35?"2px 8px":"6px 10px",cursor:"pointer",overflow:"hidden",zIndex:10,
+                        background:c.couleur+(rdvPast?"10":"18"),borderLeft:`3px solid ${c.couleur+(rdvPast?"60":"ff")}`,
+                        opacity:rdvPast?0.55:1}}>
+                      {pH<35?<div style={{fontSize:10,fontWeight:700,color:c.couleur,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.client_prenom} {r.client_nom?.charAt(0)}. · {r.prestations_noms} · {r.prix_total}€</div>
+                      :<><div style={{fontSize:12,fontWeight:700,color:c.couleur}}>{r.client_prenom} {r.client_nom}</div>
+                      <div style={{fontSize:10,color:T.text2,marginTop:2}}>{r.prestations_noms} · {r.prix_total}€</div></>}
+                    </div>);})}
+                </div>);})}
+            </div>))}
+        </div>
+        {/* Current time indicator */}
+        {isToday&&(()=>{
+          const startH=Math.max(0,parseH(salon?.ouverture).h-1);
+          const mins=(n.getHours()-startH)*60+n.getMinutes();const totalSlots=slots.length;if(mins<0||mins>totalSlots*30)return null;
+          const top=mins/30*H;
+          return(<div style={{position:"absolute",top,left:48,right:0,zIndex:20,pointerEvents:"none"}}>
+            <div style={{display:"flex",alignItems:"center"}}>
+              <div style={{width:8,height:8,borderRadius:4,background:"#ef4444",flexShrink:0}}/>
+              <div style={{flex:1,height:2,background:"#ef4444"}}/>
+            </div></div>);
+        })()}
+      </div>
+      </div>
+    </div>);
+}
+
+/* DAY STACK VIEW - single timeline, all coiffeurs overlaid */
+function DayStackView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
+  const slots=mkSlots(salon),H=28;
+  const [tick,setTick]=useState(Date.now());
+  useEffect(()=>{const iv=setInterval(()=>setTick(Date.now()),60000);return()=>clearInterval(iv);},[]);
+  const n=new Date(tick);const isToday=same(currentDate,n);
+  const isPast=(h,m)=>{if(!isToday)return currentDate<n;const slot=new Date(currentDate);slot.setHours(h,m,0,0);return slot<n;};
+  const allConge=()=>{if(isSalonFerme(currentDate,salon))return true;const ds=fd(currentDate);const active=coiffeurs.filter(c=>c.actif&&(cf.length===0||cf.includes(c.id)));return active.length>0&&active.every(c=>c.conges?.includes(ds));};
+  const ac=allConge();
+  return(
+    <div style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
+      <div style={{overflow:"auto",flex:1}}>
+      <div style={{display:"grid",gridTemplateColumns:"52px 1fr",position:"sticky",top:0,zIndex:30,background:T.bg,borderBottom:`1px solid ${T.border}`}}>
+        <div style={{padding:8}}/>
+        <div style={{padding:"10px 16px",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:10,fontWeight:700,color:isToday?T.accent:T.text3,textTransform:"uppercase"}}>{JC[currentDate.getDay()]}</div>
+            <div style={{fontSize:22,fontWeight:800,color:isToday?T.accent:T.text}}>{currentDate.getDate()}</div>
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {coiffeurs.filter(c=>c.actif&&(cf.length===0||cf.includes(c.id))).map(c=>{
+              const cg=isSalonFerme(currentDate,salon)||c.conges?.includes(fd(currentDate));
+              return(<div key={c.id} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:6,
+                background:cg?T.congeBg:c.couleur+"15",border:`1px solid ${cg?T.congeBorder:c.couleur+"30"}`}}>
+                <div style={{width:6,height:6,borderRadius:3,background:cg?T.congeText:c.couleur}}/>
+                <span style={{fontSize:10,fontWeight:600,color:cg?T.congeText:c.couleur}}>{cLabel(c)}{cg?" (congé)":""}</span></div>);})}
+          </div>
+          {ac&&<span style={{fontSize:10,color:T.congeText,fontWeight:700,background:T.congeBg,borderRadius:4,padding:"2px 8px"}}>JOURNÉE CONGÉ</span>}
+        </div>
+      </div>
+      <div style={{position:"relative"}}>
+        <div style={{display:"grid",gridTemplateColumns:"52px 1fr"}}>
+          {slots.map(({h,m,label})=>{
+            const rh=rdvs.filter(r=>{if(r.statut!=="confirme")return false;if(cf.length>0&&!cf.includes(r.coiffeur_id))return false;
+              const rd=new Date(r.date_heure);return same(rd,currentDate)&&rd.getHours()===h&&rd.getMinutes()===m;});
+            const past=isPast(h,m);const offBg=!ac?allOffStyle(currentDate,h,m,coiffeurs,cf,30,T):null;
+            return(<div key={`dss-${label}`} style={{display:"contents"}}>
+              <div style={{borderBottom:`1px solid ${T.surface2}`,padding:"0 6px",display:"flex",alignItems:"flex-start",justifyContent:"flex-end",fontSize:10,color:T.text3,fontWeight:500,height:H,paddingTop:2}}>
+                {m===0?label:""}</div>
+              <div onClick={()=>!ac&&!offBg&&rh.length===0&&onSlot(currentDate,h,m)}
+                style={{borderBottom:`1px solid ${T.surface2}`,padding:1,height:H,cursor:ac||offBg?"not-allowed":"pointer",position:"relative",
+                  background:ac?T.congeBgCell:offBg||(past?(T.surface2+"40"):"transparent")}}>
+                {rh.map(r=>{const co=coiffeurs.find(c=>c.id===r.coiffeur_id),pH=r.duree_totale_minutes/30*H;
+                  const rdvPast=new Date(new Date(r.date_heure).getTime()+r.duree_totale_minutes*60000)<n;
+                  return(<div key={r.id} onClick={e=>{e.stopPropagation();onRdv(r);}}
+                    style={{position:"absolute",left:2,right:2,top:1,height:pH-3,borderRadius:pH<35?5:8,padding:pH<35?"2px 8px":"6px 10px",cursor:"pointer",overflow:"hidden",zIndex:10,
+                      background:co?co.couleur+(rdvPast?"10":"18"):T.surface3,borderLeft:`3px solid ${co?co.couleur+(rdvPast?"60":"ff"):T.text3}`,
+                      opacity:rdvPast?0.55:1}}>
+                    {pH<35?<div style={{fontSize:10,fontWeight:700,color:co?co.couleur:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.client_prenom} {r.client_nom?.charAt(0)}. · {r.prestations_noms} · {r.prix_total}€</div>
+                    :<><div style={{fontSize:12,fontWeight:700,color:co?co.couleur:T.text}}>{r.client_prenom} {r.client_nom}</div>
+                    <div style={{fontSize:10,color:T.text2,marginTop:2}}>{r.prestations_noms} · {r.prix_total}€ — {cLabel(co)}</div></>}
+                  </div>);})}
+              </div>
+            </div>);})}
+        </div>
+        {isToday&&(()=>{
+          const startH=Math.max(0,parseH(salon?.ouverture).h-1);
+          const mins=(n.getHours()-startH)*60+n.getMinutes();if(mins<0||mins>slots.length*30)return null;
+          const top=mins/30*H;
+          return(<div style={{position:"absolute",top,left:48,right:0,zIndex:20,pointerEvents:"none"}}>
+            <div style={{display:"flex",alignItems:"center"}}>
+              <div style={{width:8,height:8,borderRadius:4,background:"#ef4444",flexShrink:0}}/>
+              <div style={{flex:1,height:2,background:"#ef4444"}}/>
+            </div></div>);
+        })()}
+      </div>
+      </div>
+    </div>);
+}
+
+/* MONTH VIEW */
+function MonthView({currentDate,rdvs,cf,coiffeurs,onDay,salon,T}){
+  const grid=mGrid(currentDate);const n=new Date();
+  const allConge=(d)=>{if(isSalonFerme(d,salon))return true;const ds=fd(d);const active=coiffeurs.filter(c=>c.actif&&(cf.length===0||cf.includes(c.id)));return active.length>0&&active.every(c=>c.conges?.includes(ds));};
+  const someConge=(d)=>{const ds=fd(d);return coiffeurs.some(c=>c.actif&&(cf.length===0||cf.includes(c.id))&&c.conges?.includes(ds));};
+  return(<div style={{flex:1,padding:"0 4px",overflow:"auto"}}><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+    {["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"].map(d=><div key={d} style={{padding:8,textAlign:"center",fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase"}}>{d}</div>)}
+    {grid.map((d,i)=>{
+      const dr=rdvs.filter(r=>{if(r.statut!=="confirme")return false;if(cf.length>0&&!cf.includes(r.coiffeur_id))return false;return same(new Date(r.date_heure),d);});
+      const cnt=dr.length,ca=dr.reduce((s,r)=>s+r.prix_total,0),isT=same(d,n),isCl=d.getDay()===0||d.getDay()===1,ac=allConge(d),sc=someConge(d);
+      const past=d<n&&!isT;
+      return(<div key={i} onClick={()=>!isCl&&onDay(d)}
+        style={{padding:8,minHeight:72,background:ac?T.congeBgCell:isT?T.surface2:d.getMonth()===currentDate.getMonth()?T.surface:T.bg,
+          border:`1px solid ${isT?T.accent+"50":T.border}`,borderRadius:10,cursor:isCl?"default":"pointer",opacity:isCl?0.3:past?0.6:d.getMonth()===currentDate.getMonth()?1:0.4}}>
+        <div style={{display:"flex",alignItems:"center",gap:4}}>
+          <span style={{fontSize:13,fontWeight:isT?800:500,color:isT?T.accent:T.text}}>{d.getDate()}</span>
+          {ac&&<span style={{fontSize:7,color:T.congeText,fontWeight:700,background:T.congeBg,borderRadius:3,padding:"0 3px"}}>CONGÉ</span>}
+        </div>
+        {cnt>0&&<div style={{marginTop:6}}>
+          <div style={{display:"flex",gap:3,flexWrap:"wrap",marginBottom:3}}>
+            {coiffeurs.filter(co=>co.actif&&(cf.length===0||cf.includes(co.id))).map(co=>dr.filter(r=>r.coiffeur_id===co.id).length>0?<div key={co.id} style={{width:6,height:6,borderRadius:3,background:co.couleur}}/>:null)}</div>
+          <div style={{fontSize:9,color:T.text3,fontWeight:600}}>{cnt} · {ca}€</div></div>}
+      </div>);})}
+  </div></div>);
+}
+
+/* MONTH SIDE-BY-SIDE VIEW - one mini-calendar per coiffeur */
+function MonthSbsView({currentDate,rdvs,cf,coiffeurs,onDay,salon,T}){
+  const grid=mGrid(currentDate);const n=new Date();
+  const vc=coiffeurs.filter(c=>c.actif&&(cf.length===0||cf.includes(c.id)));
+  return(<div style={{flex:1,padding:"8px 4px",overflow:"auto"}}>
+    <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(vc.length,3)},1fr)`,gap:12}}>
+      {vc.map(c=>{
+        const cRdvs=rdvs.filter(r=>r.statut==="confirme"&&r.coiffeur_id===c.id);
+        return(<div key={c.id} style={{borderRadius:12,border:`1px solid ${T.border}`,overflow:"hidden",background:T.surface}}>
+          <div style={{padding:"10px 14px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8,background:T.surface2}}>
+            <div style={{width:24,height:24,borderRadius:8,background:c.couleur+"20",color:c.couleur,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800}}>{c.prenom.charAt(0)}</div>
+            <span style={{fontSize:13,fontWeight:700,color:c.couleur}}>{cLabel(c)}</span>
+            <span style={{fontSize:10,color:T.text3,marginLeft:"auto"}}>{cRdvs.length} RDV</span></div>
+          <div style={{padding:6}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+              {["L","M","M","J","V","S","D"].map((d,i)=><div key={i} style={{padding:2,textAlign:"center",fontSize:8,fontWeight:700,color:T.text3}}>{d}</div>)}
+              {grid.map((d,i)=>{
+                const dr=cRdvs.filter(r=>same(new Date(r.date_heure),d));
+                const cnt=dr.length,isT=same(d,n),isCl=d.getDay()===0||d.getDay()===1;
+                const sf=isSalonFerme(d,salon);const cg=sf||c.conges?.includes(fd(d));const past=d<n&&!isT;
+                return(<div key={i} onClick={()=>!isCl&&onDay(d)}
+                  style={{padding:"3px 1px",textAlign:"center",minHeight:28,borderRadius:4,cursor:isCl?"default":"pointer",
+                    background:cg?T.congeBgCell:isT?T.surface2:d.getMonth()===currentDate.getMonth()?T.surface:T.bg,
+                    border:isT?`1px solid ${T.accent+"50"}`:`1px solid transparent`,
+                    opacity:isCl?0.2:past?0.5:d.getMonth()===currentDate.getMonth()?1:0.3}}>
+                  <div style={{fontSize:10,fontWeight:isT?800:400,color:cg?T.congeText:isT?T.accent:T.text}}>{d.getDate()}</div>
+                  {cnt>0&&<div style={{display:"flex",justifyContent:"center",gap:2,marginTop:1}}>
+                    {cnt<=3?Array.from({length:cnt}).map((_,j)=><div key={j} style={{width:4,height:4,borderRadius:2,background:c.couleur}}/>)
+                    :<span style={{fontSize:7,fontWeight:700,color:c.couleur}}>{cnt}</span>}</div>}
+                  {cg&&cnt===0&&<div style={{fontSize:6,color:T.congeText,fontWeight:700}}>C</div>}
+                </div>);})}
+            </div>
+          </div>
+        </div>);
+      })}
+    </div>
+  </div>);
+}
+
+/* RDV DETAIL */
+function RdvDetail({rdv,open,onClose,onCancel,onUpdate,coiffeurs,prestations,clients,salon,T}){
+  const [editing,setEditing]=useState(false);
+  const [sCo,setSCo]=useState("");const [sP,setSP]=useState("");
+  const [date,setDate]=useState("");const [time,setTime]=useState("");
+  const [clientNom,setClientNom]=useState("");const [clientPrenom,setClientPrenom]=useState("");const [clientTel,setClientTel]=useState("");
+  useEffect(()=>{if(rdv&&open){const dt=new Date(rdv.date_heure);
+    setSCo(rdv.coiffeur_id);setDate(fd(dt));setTime(ft(dt.getHours(),dt.getMinutes()));
+    setClientNom(rdv.client_nom||"");setClientPrenom(rdv.client_prenom||"");setClientTel(rdv.client_telephone||"");
+    try{setSP(JSON.parse(rdv.prestations_ids)[0]||"");}catch(e){setSP("");}setEditing(false);}},[rdv,open]);
+  if(!rdv)return null;const co=coiffeurs.find(c=>c.id===rdv.coiffeur_id),dt=new Date(rdv.date_heure),ed=new Date(dt.getTime()+rdv.duree_totale_minutes*60000);
+  const prestaOpts=[{value:"",label:"Choisir..."},...prestations.filter(p=>p.actif).map(p=>({
+    value:p.id,label:`${p.id} · ${p.nom_court} — ${p.prix}€ (${p.duree_minutes}min)`}))];
+  const saveEdit=()=>{const p=prestations.find(x=>x.id===sP);const coNew=coiffeurs.find(c=>c.id===sCo);
+    onUpdate(rdv.id,{coiffeur_id:sCo,coiffeur_prenom:coNew?.prenom||"",prestations_noms:p?.nom_court||rdv.prestations_noms,prestations_ids:JSON.stringify([sP]),
+      date_heure:`${date}T${time}:00`,duree_totale_minutes:p?.duree_minutes||rdv.duree_totale_minutes,prix_total:p?.prix??rdv.prix_total,
+      client_nom:clientNom,client_prenom:clientPrenom,client_telephone:clientTel});onClose();};
+  return(<Modal open={open} onClose={onClose} title={editing?"Modifier le rendez-vous":"Détail du rendez-vous"} width={560} T={T}>
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {!editing?<>
+        <div style={{display:"flex",alignItems:"center",gap:14,padding:16,background:T.surface2,borderRadius:14}}>
+          <div style={{width:48,height:48,borderRadius:14,background:co?.couleur||T.text3,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:800}}>{rdv.client_prenom?.charAt(0)}</div>
+          <div><div style={{fontSize:17,fontWeight:700,color:T.text}}>{rdv.client_prenom} {rdv.client_nom}</div><div style={{fontSize:12,color:T.text3}}>{rdv.client_telephone}</div></div>
+          <div style={{marginLeft:"auto"}}><Bdg color={co?.couleur} T={T}>{cLabel(co)}</Bdg></div></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          {[{l:"PRESTATION",v:rdv.prestations_noms},{l:"DATE",v:`${JOURS[dt.getDay()]} ${dt.getDate()} ${MOIS[dt.getMonth()].toLowerCase()}`},
+            {l:"HORAIRE",v:`${ft(dt.getHours(),dt.getMinutes())} → ${ft(ed.getHours(),ed.getMinutes())}`},{l:"TARIF",v:`${rdv.prix_total}€ · ${rdv.duree_totale_minutes} min`}].map(it=>(
+            <div key={it.l} style={{padding:12,background:T.surface2,borderRadius:10}}>
+              <div style={{fontSize:9,color:T.text3,fontWeight:700,letterSpacing:"0.1em",marginBottom:4}}>{it.l}</div>
+              <div style={{fontSize:13,fontWeight:600,color:T.text}}>{it.v}</div></div>))}
+        </div>
+        <div style={{display:"flex",gap:8,borderTop:`1px solid ${T.border}`,paddingTop:16}}>
+          <Btn variant="danger" icon={Trash2} onClick={()=>{onCancel(rdv.id);onClose();}} T={T}>Annuler RDV</Btn>
+          <div style={{flex:1}}/><Btn variant="accent" icon={Edit} onClick={()=>setEditing(true)} T={T}>Modifier</Btn></div>
+      </>:<>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <Inp label="Prénom" value={clientPrenom} onChange={setClientPrenom} T={T}/>
+          <Inp label="Nom" value={clientNom} onChange={setClientNom} T={T}/></div>
+        <Inp label="Téléphone" value={clientTel} onChange={setClientTel} icon={Phone} T={T}/>
+        <Sel label="Prestation" value={sP} onChange={setSP} T={T} options={prestaOpts}/>
+        <Sel label="Coiffeur" value={sCo} onChange={setSCo} T={T} options={[{value:"",label:"Choisir..."},...coiffeurs.filter(c=>c.actif).map(c=>({value:c.id,label:cLabel(c)}))]}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <Inp label="Date" value={date} onChange={setDate} type="date" T={T}/>
+          <Sel label="Heure" value={time} onChange={setTime} T={T} options={mkTimes(salon)}/></div>
+        {(()=>{if(!sCo||!date)return null;const coE=coiffeurs.find(c=>c.id===sCo);if(!coE)return null;
+          const dE=new Date(date+"T12:00:00");
+          const msg=isSalonFerme(dE,salon)?"Le salon est fermé ce jour":coE.conges?.includes(date)?`${cLabel(coE)} est en congé ce jour`:
+            !coE.horaires?.[JOURS[dE.getDay()]]?`${cLabel(coE)} ne travaille pas le ${JOURS[dE.getDay()]}`:
+            time?(()=>{const[tH,tM]=time.split(':').map(Number);return isOffSlot(dE,coE,tH,tM)?`${cLabel(coE)} ne travaille pas à ${time}`:null;})():null;
+          return msg?<div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:8,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`}}>
+            <AlertTriangle size={14} color={T.dangerText}/><span style={{fontSize:11,fontWeight:600,color:T.dangerText}}>{msg}</span></div>:null;})()}
+        <div style={{display:"flex",gap:8,borderTop:`1px solid ${T.border}`,paddingTop:16}}>
+          <Btn variant="secondary" onClick={()=>setEditing(false)} T={T}>Annuler</Btn>
+          <div style={{flex:1}}/><Btn variant="accent" icon={Save} onClick={saveEdit} disabled={!sP||!sCo||!date||!time||(()=>{if(!sCo||!date)return false;const coE=coiffeurs.find(c=>c.id===sCo);if(!coE)return false;const dE=new Date(date+"T12:00:00");if(isSalonFerme(dE,salon))return true;if(coE.conges?.includes(date))return true;if(!coE.horaires?.[JOURS[dE.getDay()]])return true;if(time){const[tH,tM]=time.split(':').map(Number);if(isOffSlot(dE,coE,tH,tM))return true;}return false;})()} T={T}>Enregistrer</Btn></div>
+      </>}
+    </div></Modal>);
+}
+
+/* CREATE RDV */
+function CreateRdv({open,onClose,onCreate,iDate,iHour,iMin,iCoif,coiffeurs,prestations,clients,rdvs,salon,T}){
+  const [cs,setCs]=useState("");const [sc,setSc]=useState(null);const [nc,setNc]=useState({nom:"",prenom:"",telephone:""});const [isnc,setIsnc]=useState(false);
+  const [sCo,setSCo]=useState("");const [sP,setSP]=useState("");
+  const [date,setDate]=useState("");const [time,setTime]=useState("10:00");
+  /* Mode (most frequent value) helper */
+  const mode=(arr)=>{if(!arr||arr.length===0)return null;const freq={};arr.forEach(v=>{if(v)freq[v]=(freq[v]||0)+1;});
+    let best=null,max=0;Object.entries(freq).forEach(([k,v])=>{if(v>max){max=v;best=k;}});return best;};
+  useEffect(()=>{if(open){setDate(iDate?fd(iDate):"");setTime(iHour!=null?ft(iHour,iMin||0):"10:00");setSCo(iCoif||"");
+    setSc(null);setCs("");setIsnc(false);setNc({nom:"",prenom:"",telephone:""});setSP("");}},[open,iDate,iHour,iMin,iCoif]);
+  const selectClient=(c)=>{setSc(c);setCs("");
+    /* Pre-fill coiffeur & prestation from most frequent in history */
+    const hist=(rdvs||[]).filter(r=>r.client_id===c.id&&r.statut==="confirme");
+    const topCoif=mode(hist.map(r=>r.coiffeur_id));
+    const topPresta=mode(hist.map(r=>{try{const ids=JSON.parse(r.prestations_ids);return ids[0]||null;}catch(e){return null;}}));
+    if(!iCoif&&topCoif)setSCo(topCoif);
+    if(topPresta)setSP(topPresta);
+  };
+  const fc=clients.filter(c=>{if(!cs||cs.length<2)return false;return`${c.nom} ${c.prenom} ${c.telephone}`.toUpperCase().includes(cs.toUpperCase());});
+  const go=()=>{const cl=sc||{nom:nc.nom.toUpperCase(),prenom:nc.prenom,telephone:nc.telephone};
+    onCreate({client:cl,coiffeur_id:sCo,prestation:prestations.find(p=>p.id===sP),date,time});onClose();};
+  const ok=(sc||(nc.nom&&nc.telephone))&&sP&&sCo&&date&&time;
+  /* Conflict detection: congé or non-working day */
+  const conflict=(()=>{
+    if(!sCo||!date)return null;
+    const co=coiffeurs.find(c=>c.id===sCo);if(!co)return null;
+    const d=new Date(date+"T12:00:00");
+    if(isSalonFerme(d,salon))return"Le salon est fermé ce jour (fermeture annuelle)";
+    if(co.conges?.includes(date))return`${cLabel(co)} est en congé ce jour`;
+    const jourFr=JOURS[d.getDay()];
+    if(!co.horaires?.[jourFr])return`${cLabel(co)} ne travaille pas le ${jourFr}`;
+    if(time){const [tH,tM]=time.split(':').map(Number);if(isOffSlot(d,co,tH,tM))return`${cLabel(co)} ne travaille pas à ${time} ce jour`;}
+    return null;
+  })();
+  const canGo=ok&&!conflict;
+  const prestaOpts=[{value:"",label:"Choisir..."},...prestations.filter(p=>p.actif).map(p=>({
+    value:p.id,label:`${p.id} · ${p.nom_court} — ${p.prix}€ (${p.duree_minutes}min)`}))];
+  if(!open)return null;
+  return(<Modal open={open} onClose={onClose} title="Nouveau rendez-vous" width={560} T={T}>
+    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+      {!sc&&!isnc&&<div>
+        <Inp label="Client" value={cs} onChange={setCs} placeholder="Rechercher nom ou téléphone..." icon={Search} T={T}/>
+        {fc.length>0&&<div style={{border:`1px solid ${T.border}`,borderRadius:10,maxHeight:140,overflow:"auto",marginBottom:8,marginTop:-8}}>
+          {fc.map(c=>(<div key={c.id} onClick={()=>selectClient(c)} style={{padding:"10px 14px",cursor:"pointer",borderBottom:`1px solid ${T.surface2}`,display:"flex",alignItems:"center",gap:10}}>
+            <User size={13} color={T.text3}/><div><div style={{fontSize:13,fontWeight:600,color:T.text}}>{c.prenom} {c.nom}</div><div style={{fontSize:10,color:T.text3}}>{c.telephone}</div></div></div>))}</div>}
+        <Btn variant="ghost" icon={Plus} small onClick={()=>setIsnc(true)} T={T}>Nouveau client</Btn></div>}
+      {sc&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:T.surface2,borderRadius:10,marginBottom:8}}>
+        <User size={14} color={T.text3}/><span style={{fontSize:13,fontWeight:600,color:T.text}}>{sc.prenom} {sc.nom}</span>
+        <span style={{fontSize:11,color:T.text3}}>{sc.telephone}</span>
+        <button onClick={()=>{setSc(null);if(!iCoif)setSCo("");setSP("");}} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:T.text3}}><X size={14}/></button></div>}
+      {isnc&&!sc&&<div style={{padding:14,background:T.surface2,borderRadius:10,marginBottom:8}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <Inp label="Nom" value={nc.nom} onChange={v=>setNc({...nc,nom:v})} placeholder="DUPONT" T={T}/>
+          <Inp label="Prénom" value={nc.prenom} onChange={v=>setNc({...nc,prenom:v})} placeholder="Marie" T={T}/></div>
+        <Inp label="Téléphone" value={nc.telephone} onChange={v=>setNc({...nc,telephone:v})} icon={Phone} placeholder="+33..." T={T}/>
+        <Btn variant="ghost" small onClick={()=>setIsnc(false)} T={T}>← Client existant</Btn></div>}
+      <Sel label="Prestation" value={sP} onChange={setSP} T={T} options={prestaOpts}/>
+      <Sel label="Coiffeur" value={sCo} onChange={setSCo} T={T} options={[{value:"",label:"Choisir..."},...coiffeurs.filter(c=>c.actif).map(c=>({value:c.id,label:cLabel(c)}))]}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <Inp label="Date" value={date} onChange={setDate} type="date" T={T}/>
+        <Sel label="Heure" value={time} onChange={setTime} T={T} options={mkTimes(salon)}/></div>
+      {conflict&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:8,background:T.dangerBg,border:`1px solid ${T.dangerBorder}`}}>
+        <AlertTriangle size={14} color={T.dangerText}/><span style={{fontSize:11,fontWeight:600,color:T.dangerText}}>{conflict}</span></div>}
+      <div style={{display:"flex",gap:8,marginTop:8,borderTop:`1px solid ${T.border}`,paddingTop:16}}>
+        <Btn variant="secondary" onClick={onClose} T={T}>Annuler</Btn>
+        <div style={{flex:1}}/><Btn variant="accent" icon={Check} onClick={go} disabled={!canGo} T={T}>Confirmer</Btn></div>
+    </div></Modal>);
+}
+
+/* DASHBOARD */
+function Dashboard({rdvs,coiffeurs,prestations,clients,T}){
+  const conf=rdvs.filter(r=>r.statut==="confirme"),totalCA=conf.reduce((s,r)=>s+r.prix_total,0),avgT=conf.length?Math.round(totalCA/conf.length):0;
+  const bySrc={};conf.forEach(r=>{bySrc[r.source]=(bySrc[r.source]||0)+1;});
+  const srcL={telephone_ia:"Agent IA",widget_web:"Widget Web",sur_place:"Sur place"},srcC={telephone_ia:"#6366f1",widget_web:"#0ea5e9",sur_place:"#10b981"};
+  const byCo=coiffeurs.map(c=>{const cr=conf.filter(r=>r.coiffeur_id===c.id);return{...c,count:cr.length,ca:cr.reduce((s,r)=>s+r.prix_total,0)};}).sort((a,b)=>b.ca-a.ca);
+  const byP={};conf.forEach(r=>{byP[r.prestations_noms]=(byP[r.prestations_noms]||0)+1;});
+  const topP=Object.entries(byP).sort((a,b)=>b[1]-a[1]).slice(0,8),maxP=topP.length?topP[0][1]:1;
+  const byCat={femme:0,homme:0,enfant:0};conf.forEach(r=>{try{JSON.parse(r.prestations_ids).forEach(id=>{const p=prestations.find(x=>x.id===id);if(p)byCat[p.categorie]++;});}catch(e){}});
+  const totCat=byCat.femme+byCat.homme+byCat.enfant||1;const catC={femme:"#ec4899",homme:"#6366f1",enfant:"#f59e0b"};
+  const byDay={};conf.forEach(r=>{const d=r.date_heure.split('T')[0];byDay[d]=(byDay[d]||0)+1;});
+  const days=Object.keys(byDay).sort(),maxD=Math.max(...Object.values(byDay),1);
+  const Card=({title,icon:Ic,children})=>(<div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,boxShadow:T.cardShadow,overflow:"hidden"}}>
+    <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8}}><Ic size={15} color={T.accent}/><span style={{fontSize:13,fontWeight:700,color:T.text}}>{title}</span></div>
+    <div style={{padding:18}}>{children}</div></div>);
+  return(<div style={{padding:24,maxWidth:1100,margin:"0 auto",width:"100%",overflow:"auto",flex:1}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200,1fr))",gap:12,marginBottom:20}}>
+      {[{l:"CA Total",v:`${totalCA.toLocaleString()}€`,i:DollarSign,g:"linear-gradient(135deg,#10b981,#34d399)"},
+        {l:"Total RDV",v:conf.length,i:Calendar,g:"linear-gradient(135deg,#6366f1,#818cf8)"},
+        {l:"Panier moyen",v:`${avgT}€`,i:TrendingUp,g:"linear-gradient(135deg,#f59e0b,#fbbf24)"},
+        {l:"Clients actifs",v:clients.length,i:Users,g:"linear-gradient(135deg,#ec4899,#f472b6)"}].map(k=>(
+        <div key={k.l} style={{background:T.surface,borderRadius:14,padding:"18px 20px",border:`1px solid ${T.border}`,boxShadow:T.cardShadow,display:"flex",alignItems:"center",gap:14}}>
+          <div style={{width:44,height:44,borderRadius:12,background:k.g,display:"flex",alignItems:"center",justifyContent:"center"}}><k.i size={20} color="#fff"/></div>
+          <div><div style={{fontSize:24,fontWeight:800,color:T.text,lineHeight:1}}>{k.v}</div><div style={{fontSize:11,color:T.text3,fontWeight:500,marginTop:3}}>{k.l}</div></div></div>))}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+      <Card title="CA par coiffeur" icon={BarChart3}>{byCo.map(c=>(<div key={c.id} style={{marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,fontWeight:600,color:T.text}}>{cLabel(c)}</span><span style={{fontSize:12,fontWeight:700,color:c.couleur}}>{c.ca}€</span></div>
+        <div style={{height:8,background:T.surface3,borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:`${totalCA>0?c.ca/totalCA*100:0}%`,background:c.couleur,borderRadius:4}}/></div></div>))}</Card>
+      <Card title="Source des RDV" icon={PieChart}>{Object.entries(bySrc).sort((a,b)=>b[1]-a[1]).map(([k,v])=>(
+        <div key={k} style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+          <div style={{width:10,height:10,borderRadius:5,background:srcC[k]||T.text3}}/><span style={{fontSize:13,fontWeight:600,color:T.text,flex:1}}>{srcL[k]||k}</span>
+          <span style={{fontSize:22,fontWeight:800,color:T.text}}>{v}</span><span style={{fontSize:11,color:T.text3}}>{conf.length?Math.round(v/conf.length*100):0}%</span></div>))}</Card>
+      <Card title="Top prestations" icon={Scissors}>{topP.map(([n,c])=>(<div key={n} style={{marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,fontWeight:500,color:T.text}}>{n}</span><span style={{fontSize:12,fontWeight:700,color:T.accent}}>{c}</span></div>
+        <div style={{height:6,background:T.surface3,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${c/maxP*100}%`,background:T.accent,borderRadius:3}}/></div></div>))}</Card>
+      <Card title="Répartition H/F/Enfant" icon={Users}>
+        <div style={{display:"flex",gap:8,marginBottom:16}}>{Object.entries(byCat).map(([k,v])=><div key={k} style={{flex:v/totCat,height:12,background:catC[k],borderRadius:6,minWidth:v>0?8:0}}/>)}</div>
+        <div style={{display:"flex",gap:20}}>{Object.entries(byCat).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:6}}>
+          <div style={{width:8,height:8,borderRadius:4,background:catC[k]}}/><span style={{fontSize:12,fontWeight:600,color:T.text}}>{k.charAt(0).toUpperCase()+k.slice(1)}</span>
+          <span style={{fontSize:12,fontWeight:700,color:T.text2}}>{Math.round(v/totCat*100)}%</span></div>))}</div></Card>
+      <div style={{gridColumn:"1/-1"}}><Card title="RDV par jour" icon={Activity}>
+        <div style={{display:"flex",alignItems:"flex-end",gap:3,height:100}}>
+          {days.map(d=>{const v=byDay[d];return(<div key={d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+            <span style={{fontSize:9,fontWeight:700,color:T.accent}}>{v}</span>
+            <div style={{width:"100%",maxWidth:40,height:`${v/maxD*100}%`,minHeight:4,background:T.accentBg,borderRadius:4}}/>
+            <span style={{fontSize:9,color:T.text3,fontWeight:600}}>{JC[new Date(d).getDay()]}</span></div>);})}
+        </div></Card></div>
+    </div></div>);
+}
+
+/* CRUD: CLIENTS */
+function ClientsP({clients,setClients,T}){
+  const [s,setS]=useState("");const [em,setEm]=useState(null);const [f,setF]=useState({nom:"",prenom:"",telephone:"",email:""});
+  const fl=clients.filter(c=>!s||`${c.nom} ${c.prenom} ${c.telephone}`.toUpperCase().includes(s.toUpperCase()));
+  return(<div style={{padding:24,maxWidth:900,margin:"0 auto",width:"100%",overflow:"auto",flex:1}}>
+    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+      <div style={{flex:1}}><Inp value={s} onChange={setS} placeholder="Rechercher un client..." icon={Search} T={T}/></div>
+      <Btn variant="accent" icon={Plus} onClick={()=>{setF({nom:"",prenom:"",telephone:"",email:""});setEm("new");}} T={T}>Nouveau</Btn></div>
+    <div style={{borderRadius:14,overflow:"hidden",border:`1px solid ${T.border}`,boxShadow:T.cardShadow}}>
+      <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 80px",padding:"10px 18px",background:T.surface2,fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase"}}>
+        <span>Nom</span><span>Contact</span><span>Visites</span><span/></div>
+      {fl.map(c=>(<div key={c.id} style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 80px",padding:"12px 18px",borderTop:`1px solid ${T.border}`,alignItems:"center"}}>
+        <span style={{fontSize:13,fontWeight:600,color:T.text}}>{c.prenom} {c.nom}</span><span style={{fontSize:12,color:T.text2}}>{c.telephone}</span><Bdg small T={T}>{c.nombre_visites}</Bdg>
+        <div style={{display:"flex",gap:4}}>
+          <button onClick={()=>{setF({...c});setEm(c.id);}} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.text3}}><Edit size={14}/></button>
+          <button onClick={async()=>{const phone=(c.telephone||"").replace("+","").replace(/\s/g,"");
+            setClients(clients.filter(x=>x.id!==c.id));if(phone)await fbDel(`clients/${phone}`);}} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.dangerText}}><Trash2 size={14}/></button></div></div>))}</div>
+    <Modal open={!!em} onClose={()=>setEm(null)} title={em==="new"?"Nouveau client":"Modifier client"} T={T}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><Inp label="Nom" value={f.nom} onChange={v=>setF({...f,nom:v})} T={T}/><Inp label="Prénom" value={f.prenom} onChange={v=>setF({...f,prenom:v})} T={T}/></div>
+      <Inp label="Téléphone" value={f.telephone} onChange={v=>setF({...f,telephone:v})} icon={Phone} T={T}/>
+      <Inp label="Email" value={f.email} onChange={v=>setF({...f,email:v})} icon={Mail} T={T}/>
+      <div style={{display:"flex",gap:8,marginTop:8}}><Btn variant="secondary" onClick={()=>setEm(null)} T={T}>Annuler</Btn><div style={{flex:1}}/>
+        <Btn variant="accent" icon={Save} T={T} onClick={async()=>{const phone=(f.telephone||"").replace("+","").replace(/\s/g,"");
+          if(em==="new"){const nc={...f,id:phone||("C"+Date.now()),nombre_visites:0,created_at:new Date().toISOString()};
+            setClients([...clients,nc]);if(phone)await fbPut(`clients/${phone}`,nc);}
+          else{setClients(clients.map(c=>c.id===em?{...c,...f}:c));const oldPhone=(clients.find(c=>c.id===em)?.telephone||"").replace("+","").replace(/\s/g,"");
+            if(oldPhone)await fbPatch(`clients/${oldPhone}`,f);}setEm(null);}}>Enregistrer</Btn></div></Modal></div>);
+}
+
+/* CRUD: PRESTATIONS with sorting */
+function PrestationsP({prestations,setPrestations,salon,T}){
+  const [em,setEm]=useState(null);const [f,setF]=useState({id:"",nom:"",nom_court:"",categorie:"femme",specialisation:"femme",duree_minutes:60,prix:0});
+  const [fc,setFc]=useState("all");const [sort,setSort]=useState({key:"id",dir:1});
+  const fl=prestations.filter(p=>fc==="all"||p.categorie===fc);
+  const sorted=useMemo(()=>{return[...fl].sort((a,b)=>{
+    if(sort.key==="id")return a.id.localeCompare(b.id)*sort.dir;
+    if(sort.key==="duree")return(a.duree_minutes-b.duree_minutes)*sort.dir;
+    if(sort.key==="prix")return(a.prix-b.prix)*sort.dir;
+    if(sort.key==="spec")return(a.specialisation||"").localeCompare(b.specialisation||"")*sort.dir;return 0;});},[fl,sort]);
+  const toggleSort=k=>{setSort(s=>s.key===k?{key:k,dir:s.dir*-1}:{key:k,dir:1});};
+  const catC={homme:"#6366f1",femme:"#ec4899",enfant:"#f59e0b"};
+  const specC={femme:"#ec4899",homme:"#6366f1",enfant:"#f59e0b",coloriste:"#10b981",barbier:"#f97316"};
+  const SortBtn=({k,label})=>(<button onClick={()=>toggleSort(k)} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:sort.key===k?T.accent:T.text3,
+    display:"flex",alignItems:"center",gap:3,fontFamily:"'Outfit',sans-serif",textTransform:"uppercase",padding:0}}>
+    {label}{sort.key===k&&<span style={{fontSize:8}}>{sort.dir===1?"▲":"▼"}</span>}</button>);
+  return(<div style={{padding:24,maxWidth:1100,margin:"0 auto",width:"100%",overflow:"auto",flex:1}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20}}>
+      <div style={{display:"flex",gap:3,background:T.surface,borderRadius:10,padding:3,border:`1px solid ${T.border}`}}>
+        {["all","femme","homme","enfant"].map(c=>(
+          <button key={c} onClick={()=>setFc(c)} style={{padding:"6px 14px",borderRadius:8,border:"none",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Outfit',sans-serif",
+            background:fc===c?T.surface3:"transparent",color:fc===c?T.text:T.text3}}>{c==="all"?"Toutes ("+prestations.length+")":c.charAt(0).toUpperCase()+c.slice(1)+"s"}</button>))}
+      </div><div style={{flex:1}}/><Btn variant="accent" icon={Plus} onClick={()=>{setF({id:"",nom:"",nom_court:"",categorie:"femme",specialisation:"femme",duree_minutes:60,prix:0});setEm("new");}} T={T}>Nouvelle</Btn></div>
+    <div style={{borderRadius:14,overflow:"hidden",border:`1px solid ${T.border}`,boxShadow:T.cardShadow}}>
+      <div style={{display:"grid",gridTemplateColumns:"55px 3fr 90px 90px 80px 70px 60px",padding:"10px 18px",background:T.surface2,gap:10,alignItems:"center"}}>
+        <SortBtn k="id" label="ID"/><span style={{fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase"}}>Prestation</span>
+        <span style={{fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase"}}>Catégorie</span>
+        <SortBtn k="spec" label="Spéc."/>
+        <SortBtn k="duree" label="Durée"/><SortBtn k="prix" label="Prix"/><span/></div>
+      {sorted.map(p=>(<div key={p.id} style={{display:"grid",gridTemplateColumns:"55px 3fr 90px 90px 80px 70px 60px",padding:"12px 18px",borderTop:`1px solid ${T.border}`,alignItems:"center",gap:10}}>
+        <span style={{fontSize:11,fontWeight:700,color:T.accent,fontFamily:"monospace"}}>{p.id}</span>
+        <div><div style={{fontSize:13,fontWeight:600,color:T.text}}>{p.nom_court}</div><div style={{fontSize:10,color:T.text3}}>{p.nom}</div></div>
+        <Bdg small color={catC[p.categorie]} T={T}>{p.categorie}</Bdg>
+        <Bdg small color={specC[p.specialisation]||T.text3} T={T}>{p.specialisation||"—"}</Bdg>
+        <span style={{fontSize:12,color:T.text2}}>{p.duree_minutes} min</span>
+        <span style={{fontSize:13,fontWeight:700,color:T.text}}>{p.prix}€</span>
+        <div style={{display:"flex",gap:4}}>
+          <button onClick={()=>{setF({...p});setEm(p.id);}} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.text3}}><Edit size={14}/></button>
+          <button onClick={async()=>{setPrestations(prestations.filter(x=>x.id!==p.id));await fbDel(`prestations/${p.id}`);}} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.dangerText}}><Trash2 size={14}/></button></div>
+      </div>))}</div>
+    <Modal open={!!em} onClose={()=>setEm(null)} title={em==="new"?"Nouvelle prestation":"Modifier"} T={T}>
+      <Inp label="ID (ex: F26, H10)" value={f.id} onChange={v=>setF({...f,id:v})} T={T}/>
+      <Inp label="Nom complet" value={f.nom} onChange={v=>setF({...f,nom:v})} T={T}/>
+      <Inp label="Nom court" value={f.nom_court} onChange={v=>setF({...f,nom_court:v})} T={T}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <Sel label="Catégorie" value={f.categorie} onChange={v=>setF({...f,categorie:v})} T={T} options={[{value:"femme",label:"Femme"},{value:"homme",label:"Homme"},{value:"enfant",label:"Enfant"}]}/>
+        <Sel label="Spécialisation requise" value={f.specialisation||""} onChange={v=>setF({...f,specialisation:v})} T={T}
+          options={(salon?.specialisations||SPECIALISATIONS_LIST).map(s=>({value:s,label:s.charAt(0).toUpperCase()+s.slice(1)}))}/></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <Inp label="Durée (min)" value={f.duree_minutes} onChange={v=>setF({...f,duree_minutes:Number(v)})} type="number" T={T}/>
+        <Inp label="Prix (€)" value={f.prix} onChange={v=>setF({...f,prix:Number(v)})} type="number" T={T}/></div>
+      <div style={{display:"flex",gap:8,marginTop:8}}><Btn variant="secondary" onClick={()=>setEm(null)} T={T}>Annuler</Btn><div style={{flex:1}}/>
+        <Btn variant="accent" icon={Save} T={T} onClick={async()=>{if(em==="new"){const newId="PREST"+String(Date.now()).slice(-6);const np={...f,id:newId,actif:true};
+            setPrestations([...prestations,np]);await fbPut(`prestations/${newId}`,np);}
+          else{setPrestations(prestations.map(p=>p.id===em?{...p,...f}:p));await fbPatch(`prestations/${em}`,f);}setEm(null);}}>OK</Btn></div></Modal></div>);
+}
+
+/* QR CODE - real webcal sync from google_calendar_id */
+function QrReveal({T,calendarId,coiffeurName}){
+  const [show,setShow]=useState(false);const timer=useRef(null);
+  const reveal=(e)=>{e.stopPropagation();setShow(true);clearTimeout(timer.current);timer.current=setTimeout(()=>setShow(false),15000);};
+  useEffect(()=>()=>clearTimeout(timer.current),[]);
+  if(!calendarId)return(<div style={{width:72,height:72,flexShrink:0,alignSelf:"center",borderRadius:10,border:`1px dashed ${T.border2}`,background:T.surface2,
+    display:"flex",alignItems:"center",justifyContent:"center",opacity:0.4}}>
+    <div style={{textAlign:"center"}}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="3" height="3"/><rect x="18" y="18" width="3" height="3"/></svg>
+      <div style={{fontSize:7,fontWeight:600,color:T.text3,marginTop:2,lineHeight:1.1}}>Pas de GCal</div></div></div>);
+  const webcalUrl=`webcal://calendar.google.com/calendar/ical/${encodeURIComponent(calendarId)}/public/basic.ics`;
+  const qrImg=`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(webcalUrl)}`;
+  return(<div style={{width:72,height:72,flexShrink:0,alignSelf:"center",borderRadius:10,border:`1px dashed ${T.border2}`,background:T.surface2,
+    display:"flex",alignItems:"center",justifyContent:"center",cursor:show?"default":"pointer",overflow:"hidden",position:"relative"}}
+    onClick={!show?reveal:undefined}>
+    {!show?<div style={{textAlign:"center"}}>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={T.text3} strokeWidth="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="3" height="3"/><rect x="18" y="18" width="3" height="3"/></svg>
+      <div style={{fontSize:7,fontWeight:600,color:T.text3,marginTop:2,lineHeight:1.1}}>QR Sync</div></div>
+    :<div style={{textAlign:"center",padding:2}}>
+      <img src={qrImg} alt={`QR ${coiffeurName}`} style={{width:56,height:56,borderRadius:4}} onError={e=>{e.target.style.display="none";}}/>
+      <div style={{fontSize:6,color:T.text3,marginTop:1}}>webcal://</div>
+      <div style={{position:"absolute",bottom:0,left:0,right:0,height:2,background:T.border,overflow:"hidden"}}><div style={{height:"100%",background:T.accent,animation:"qrTimer 15s linear forwards"}}/></div>
+    </div>}
+  </div>);
+}
+
+/* MACRO PLANNING - trimester or annual congé overview per coiffeur */
+function MacroPlanning({coiffeurs,salon,T}){
+  const [macroView,setMacroView]=useState("trim"); /* trim | year */
+  const [startMonth,setStartMonth]=useState(()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1);});
+  const [year,setYear]=useState(()=>new Date().getFullYear());
+  const n=new Date();
+  const activeCoifs=coiffeurs.filter(c=>c.actif);
+
+  const trimMonths=[0,1,2].map(i=>{const d=new Date(startMonth);d.setMonth(d.getMonth()+i);return d;});
+  const yearMonths=Array.from({length:12},(_,i)=>new Date(year,i,1));
+  const months=macroView==="trim"?trimMonths:yearMonths;
+  const navQ=dir=>{if(macroView==="trim"){const d=new Date(startMonth);d.setMonth(d.getMonth()+3*dir);setStartMonth(d);}else setYear(y=>y+dir);};
+
+  /* Period boundaries for badge counts */
+  const periodStart=macroView==="trim"?trimMonths[0]:new Date(year,0,1);
+  const periodEnd=macroView==="trim"?new Date(trimMonths[2].getFullYear(),trimMonths[2].getMonth()+1,1):new Date(year+1,0,1);
+  const periodLabel=macroView==="trim"?`${MOIS[trimMonths[0].getMonth()].substring(0,3)} — ${MOIS[trimMonths[2].getMonth()].substring(0,3)} ${trimMonths[2].getFullYear()}`:`${year}`;
+
+  /* Mini-month renderer shared by both views */
+  const renderMonth=(mo,compact)=>{
+    const grid=mGrid(mo);
+    const cellH=compact?20:26;const dotSz=compact?3:4;const fontSize=compact?7:9;const headerSz=compact?9:12;
+    return(<div key={mo.getTime()}>
+      <div style={{fontSize:headerSz,fontWeight:700,color:T.text,textAlign:"center",marginBottom:compact?4:8,textTransform:"capitalize"}}>{MOIS[mo.getMonth()].substring(0,compact?3:99)} {macroView==="year"?"":mo.getFullYear()}</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:compact?0:1}}>
+        {["L","M","M","J","V","S","D"].map((d,i)=><div key={i} style={{padding:0,textAlign:"center",fontSize:compact?6:7,fontWeight:700,color:T.text3,lineHeight:"12px"}}>{d}</div>)}
+        {grid.map((d,i)=>{
+          const inMonth=d.getMonth()===mo.getMonth();
+          const isT=same(d,n);
+          const sf=isSalonFerme(d,salon);
+          const isClosed=salon?.jours_fermes?.includes(JOURS[d.getDay()]);
+          const coifConges=inMonth&&!isClosed?activeCoifs.filter(c=>c.conges?.includes(fd(d))):[];
+          const hasConge=coifConges.length>0;
+          const count=coifConges.length;
+
+          return(<div key={i} style={{padding:compact?"1px 0":"2px 0",textAlign:"center",minHeight:cellH,borderRadius:compact?2:3,position:"relative",
+            background:sf?T.congeBg:isT?T.accent+"15":"transparent",
+            border:isT?`1px solid ${T.accent+"40"}`:"1px solid transparent",
+            opacity:!inMonth?0.12:isClosed?0.12:1}}>
+            <div style={{fontSize,fontWeight:isT?800:400,color:sf?T.congeText:isT?T.accent:T.text,lineHeight:1}}>{d.getDate()}</div>
+            {inMonth&&!isClosed&&(hasConge||sf)&&(
+              sf?<div style={{width:compact?8:12,height:compact?2:3,borderRadius:1,background:T.congeText,margin:"1px auto 0"}}/>
+              :<div style={{display:"flex",justifyContent:"center",gap:1,marginTop:1,flexWrap:"wrap",maxWidth:compact?24:36,margin:"1px auto 0"}}>
+                {coifConges.map(c=><div key={c.id} style={{width:dotSz,height:dotSz,borderRadius:dotSz/2,background:c.couleur,flexShrink:0}}/>)}</div>
+            )}
+          </div>);})}
+      </div>
+    </div>);
+  };
+
+  return(<div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:20,boxShadow:T.cardShadow,marginBottom:20}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+      <Calendar size={16} color={T.accent}/>
+      <span style={{fontSize:14,fontWeight:700,color:T.text}}>Planning congés équipe</span>
+      <div style={{display:"flex",gap:1,background:T.surface2,borderRadius:8,padding:2,border:`1px solid ${T.border}`,marginLeft:8}}>
+        {[{id:"trim",l:"Trimestre"},{id:"year",l:"Année"}].map(v=><button key={v.id} onClick={()=>setMacroView(v.id)}
+          style={{padding:"4px 10px",borderRadius:6,border:"none",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Outfit',sans-serif",
+            background:macroView===v.id?T.accent:"transparent",color:macroView===v.id?"#fff":T.text3}}>{v.l}</button>)}</div>
+      <div style={{flex:1}}/>
+      <button onClick={()=>navQ(-1)} style={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:4,cursor:"pointer",display:"flex",color:T.text2}}><ChevronLeft size={14}/></button>
+      <span style={{fontSize:11,fontWeight:700,color:T.text2}}>{periodLabel}</span>
+      <button onClick={()=>navQ(1)} style={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:4,cursor:"pointer",display:"flex",color:T.text2}}><ChevronRight size={14}/></button>
+    </div>
+
+    {/* Summary badges */}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
+      {activeCoifs.map(c=>{
+        const total=(c.conges||[]).filter(d=>{const dt=new Date(d+"T12:00:00");return dt>=periodStart&&dt<periodEnd;}).length;
+        return(<div key={c.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:8,background:c.couleur+"12",border:`1px solid ${c.couleur+"30"}`}}>
+          <div style={{width:8,height:8,borderRadius:4,background:c.couleur}}/>
+          <span style={{fontSize:11,fontWeight:600,color:c.couleur}}>{c.prenom}</span>
+          <span style={{fontSize:12,fontWeight:800,color:T.text}}>{total}j</span>
+        </div>);})}
+      {(salon?.fermetures_annuelles||[]).length>0&&<div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:8,background:T.congeBg,border:`1px solid ${T.congeBorder}`}}>
+        <Store size={10} color={T.congeText}/>
+        <span style={{fontSize:11,fontWeight:600,color:T.congeText}}>Salon fermé</span>
+        <span style={{fontSize:12,fontWeight:800,color:T.congeText}}>{(salon.fermetures_annuelles||[]).filter(d=>{const dt=new Date(d+"T12:00:00");return dt>=periodStart&&dt<periodEnd;}).length}j</span>
+      </div>}
+    </div>
+
+    {/* Month grids */}
+    <div style={{display:"grid",gridTemplateColumns:macroView==="trim"?"repeat(3,1fr)":"repeat(4,1fr)",gap:macroView==="trim"?16:10}}>
+      {months.map(mo=>renderMonth(mo,macroView==="year"))}
+    </div>
+
+    {/* Year title under grid */}
+    {macroView==="year"&&<div style={{textAlign:"center",marginTop:8,fontSize:11,fontWeight:700,color:T.text3}}>{year}</div>}
+
+    {/* Legend */}
+    <div style={{display:"flex",gap:12,marginTop:12,paddingTop:10,borderTop:`1px solid ${T.border}`,flexWrap:"wrap",alignItems:"center"}}>
+      <span style={{fontSize:9,color:T.text3,fontWeight:600}}>Légende :</span>
+      {activeCoifs.map(c=><div key={c.id} style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:6,height:6,borderRadius:3,background:c.couleur}}/><span style={{fontSize:9,color:T.text3}}>{c.prenom}</span></div>)}
+      <div style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:12,height:3,borderRadius:1,background:T.congeText}}/><span style={{fontSize:9,color:T.text3}}>Salon fermé</span></div>
+    </div>
+  </div>);
+}
+
+/* CRUD: COIFFEURS with specialisations, horaires, congés, QR */
+function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
+  const [em,setEm]=useState(null);const [tab,setTab]=useState("info");
+  const salonClosed=salon?.jours_fermes||["lundi","dimanche"];
+  const [f,setF]=useState({prenom:"",nom:"",email:"",telephone:"",couleur:"#6366f1",specialisations:[],
+    horaires:{mardi:{debut:"09:30",fin:"19:00"},mercredi:{debut:"09:30",fin:"19:00"},jeudi:{debut:"09:30",fin:"19:00"},vendredi:{debut:"09:30",fin:"19:00"},samedi:{debut:"09:00",fin:"18:00"}},
+    pause_dejeuner:"12:30-13:30",conges:[]});
+  const [newConge,setNewConge]=useState("");
+  const toggleSpec=s=>{setF(prev=>({...prev,specialisations:prev.specialisations.includes(s)?prev.specialisations.filter(x=>x!==s):[...prev.specialisations,s]}));};
+  const setHoraire=(jour,field,val)=>{setF(prev=>({...prev,horaires:{...prev.horaires,[jour]:{...prev.horaires[jour],[field]:val}}}));};
+  const toggleJour=(jour)=>{if(salonClosed.includes(jour))return;setF(prev=>{const h={...prev.horaires};if(h[jour])delete h[jour];else h[jour]={debut:salon?.ouverture||"09:30",fin:salon?.fermeture||"19:00"};return{...prev,horaires:h};});};
+  const rmConge=d=>{setF(prev=>({...prev,conges:prev.conges.filter(x=>x!==d)}));};
+  const openEdit=(c)=>{setF({...c,horaires:c.horaires||{mardi:{debut:"09:30",fin:"19:00"},mercredi:{debut:"09:30",fin:"19:00"},jeudi:{debut:"09:30",fin:"19:00"},vendredi:{debut:"09:30",fin:"19:00"},samedi:{debut:"09:00",fin:"18:00"}},
+    pause_dejeuner:c.pause_dejeuner||"12:30-13:30",conges:c.conges||[]});setTab("info");setEm(c.id);};
+  const openNew=()=>{const defH={};JALL.forEach(j=>{if(!salonClosed.includes(j))defH[j]={debut:salon?.ouverture||"09:30",fin:salon?.fermeture||"19:00"};});
+    setF({prenom:"",nom:"",email:"",telephone:"",couleur:"#6366f1",specialisations:[],horaires:defH,pause_dejeuner:"12:30-13:30",conges:[]});setTab("info");setEm("new");};
+  const jtxt=c=>{const ord=JALL.filter(j=>c.horaires&&c.horaires[j]);return ord.length?ord.map(j=>j.charAt(0).toUpperCase()+j.slice(1,3)).join(", "):"Non défini";};
+
+  return(<div style={{padding:24,maxWidth:1000,margin:"0 auto",width:"100%",overflow:"auto",flex:1}}>
+    <div style={{display:"flex",justifyContent:"flex-end",marginBottom:20}}><Btn variant="accent" icon={Plus} onClick={openNew} T={T}>Nouveau coiffeur</Btn></div>
+    <MacroPlanning coiffeurs={coiffeurs} salon={salon} T={T}/>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340,1fr))",gap:14}}>
+      {coiffeurs.map(c=>(<div key={c.id} style={{border:`1px solid ${T.border}`,borderRadius:16,padding:20,background:T.surface,borderTop:`3px solid ${c.couleur}`,boxShadow:T.cardShadow}}>
+        <div style={{display:"flex",gap:14}}>
+          {/* Left: info */}
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+              <div style={{width:44,height:44,borderRadius:12,background:c.couleur+"20",color:c.couleur,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:800,flexShrink:0}}>{c.prenom.charAt(0)}</div>
+              <div style={{minWidth:0}}><div style={{fontSize:15,fontWeight:700,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cLabel(c)}</div><div style={{fontSize:10,color:T.text3}}>{c.email}</div></div></div>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}}>{c.specialisations?.map(s=><Bdg key={s} small color={c.couleur} T={T}>{s}</Bdg>)}</div>
+            <div style={{fontSize:10,color:T.text3,marginBottom:3}}>{jtxt(c)}</div>
+            {c.pause_dejeuner&&<div style={{fontSize:10,color:T.text3}}>Pause : {c.pause_dejeuner}</div>}
+            {c.conges?.length>0&&<div style={{fontSize:10,color:T.accent,marginTop:3}}>{c.conges.length} congé(s)</div>}
+          </div>
+          {/* Right: QR square */}
+          <QrReveal T={T} calendarId={c.google_calendar_id} coiffeurName={c.prenom}/>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:12,borderTop:`1px solid ${T.border}`,paddingTop:12}}>
+          <Btn variant="secondary" icon={Edit} small onClick={()=>openEdit(c)} T={T}>Modifier</Btn>
+          <Btn variant="danger" icon={Trash2} small onClick={async()=>{setCoiffeurs(coiffeurs.filter(x=>x.id!==c.id));await fbDel(`coiffeurs/${c.id}`);}} T={T}>Suppr.</Btn></div>
+      </div>))}</div>
+
+    <Modal open={!!em} onClose={()=>setEm(null)} title={em==="new"?"Nouveau coiffeur":"Modifier coiffeur"} width={620} T={T}>
+      {/* Tabs */}
+      <div style={{display:"flex",gap:2,marginBottom:18,background:T.surface2,borderRadius:10,padding:3,border:`1px solid ${T.border}`}}>
+        {[{id:"info",l:"Infos"},{id:"horaires",l:"Horaires"},{id:"conges",l:"Congés"}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"7px 0",borderRadius:8,border:"none",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Outfit',sans-serif",
+            background:tab===t.id?T.surface:"transparent",color:tab===t.id?T.text:T.text3,boxShadow:tab===t.id?T.cardShadow:"none"}}>{t.l}</button>))}
+      </div>
+
+      {/* TAB: INFO */}
+      {tab==="info"&&<div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><Inp label="Prénom" value={f.prenom} onChange={v=>setF({...f,prenom:v})} T={T}/><Inp label="Nom" value={f.nom} onChange={v=>setF({...f,nom:v})} T={T}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><Inp label="Email" value={f.email} onChange={v=>setF({...f,email:v})} icon={Mail} T={T}/><Inp label="Téléphone" value={f.telephone} onChange={v=>setF({...f,telephone:v})} icon={Phone} T={T}/></div>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}}>Spécialisations (Firebase)</label>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{(salon?.specialisations||SPECIALISATIONS_LIST).map(s=>(
+            <button key={s} onClick={()=>toggleSpec(s)} style={{padding:"5px 14px",borderRadius:20,border:`1.5px solid ${f.specialisations.includes(s)?T.accent:T.border}`,
+              background:f.specialisations.includes(s)?T.accent+"18":"transparent",color:f.specialisations.includes(s)?T.accent:T.text3,
+              fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'Outfit',sans-serif"}}>{s}</button>))}</div></div>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}}>Couleur ({COLORS.length} choix)</label>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(14,1fr)",gap:3}}>{COLORS.map(col=>(
+            <div key={col} onClick={()=>setF({...f,couleur:col})}
+              style={{width:"100%",aspectRatio:"1",borderRadius:4,background:col,cursor:"pointer",border:f.couleur===col?`2px solid ${T.text}`:"2px solid transparent",
+                boxShadow:f.couleur===col?`0 0 6px ${col}60`:"none"}}/>))}</div></div>
+      </div>}
+
+      {/* TAB: HORAIRES */}
+      {tab==="horaires"&&<div>
+        <label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.08em"}}>Jours travaillés & horaires</label>
+        {JALL.map(j=>{const closed=salonClosed.includes(j);const active=!closed&&!!f.horaires[j];
+          return(<div key={j} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"8px 12px",
+            background:closed?T.surface3+"60":active?T.surface2:T.surface,borderRadius:10,border:`1px solid ${T.border}`,opacity:closed?0.45:1}}>
+            <button onClick={()=>toggleJour(j)} disabled={closed}
+              style={{width:20,height:20,borderRadius:6,border:`2px solid ${closed?T.border:active?T.accent:T.border}`,background:active?T.accent:"transparent",
+                cursor:closed?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              {active&&<Check size={12} color="#fff"/>}</button>
+            <span style={{fontSize:13,fontWeight:600,color:closed?T.text3:active?T.text:T.text3,width:80,textTransform:"capitalize"}}>{j}</span>
+            {closed&&<span style={{fontSize:10,color:T.text3,fontStyle:"italic"}}>Salon fermé</span>}
+            {!closed&&active&&<>
+              <input type="time" step="900" value={f.horaires[j].debut} onChange={e=>setHoraire(j,"debut",e.target.value)}
+                style={{padding:"4px 8px",border:`1px solid ${T.border}`,borderRadius:6,fontSize:12,fontFamily:"'Outfit',sans-serif",background:T.surface,color:T.text,outline:"none"}}/>
+              <span style={{fontSize:11,color:T.text3}}>→</span>
+              <input type="time" step="900" value={f.horaires[j].fin} onChange={e=>setHoraire(j,"fin",e.target.value)}
+                style={{padding:"4px 8px",border:`1px solid ${T.border}`,borderRadius:6,fontSize:12,fontFamily:"'Outfit',sans-serif",background:T.surface,color:T.text,outline:"none"}}/>
+            </>}
+            {!closed&&!active&&<span style={{fontSize:11,color:T.text3,fontStyle:"italic"}}>Repos</span>}
+          </div>);})}
+        <div style={{marginTop:8}}/>
+        <Inp label="Pause déjeuner (ex: 12:30-13:30)" value={f.pause_dejeuner} onChange={v=>setF({...f,pause_dejeuner:v})} icon={Clock} T={T}/>
+      </div>}
+
+      {/* TAB: CONGES */}
+      {tab==="conges"&&<div>
+        <label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.08em"}}>Ajouter une période de congé</label>
+        <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"flex-end"}}>
+          <div style={{flex:1}}><label style={{display:"block",fontSize:10,color:T.text3,marginBottom:3}}>Du</label>
+            <input type="date" value={newConge.split("|")[0]||""} onChange={e=>setNewConge(e.target.value+"|"+(newConge.split("|")[1]||""))}
+              style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:12,fontFamily:"'Outfit',sans-serif",background:T.surface2,color:T.text,outline:"none"}}/></div>
+          <div style={{flex:1}}><label style={{display:"block",fontSize:10,color:T.text3,marginBottom:3}}>Au</label>
+            <input type="date" value={newConge.split("|")[1]||""} onChange={e=>setNewConge((newConge.split("|")[0]||"")+"|"+e.target.value)}
+              style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:12,fontFamily:"'Outfit',sans-serif",background:T.surface2,color:T.text,outline:"none"}}/></div>
+          <Btn variant="accent" icon={Plus} small onClick={()=>{
+            const [from,to]=newConge.split("|");if(!from)return;const end=to||from;
+            const ds=[];let cur=new Date(from+"T12:00:00");const last=new Date(end+"T12:00:00");
+            while(cur<=last){ds.push(fd(cur));cur=new Date(cur);cur.setDate(cur.getDate()+1);}
+            setF(prev=>({...prev,conges:[...new Set([...prev.conges,...ds])].sort()}));setNewConge("");
+          }} disabled={!newConge.split("|")[0]} T={T}>Ajouter</Btn></div>
+        {f.conges.length===0&&<div style={{padding:20,textAlign:"center",color:T.text3,fontSize:12}}>Aucun congé planifié</div>}
+        <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:200,overflow:"auto"}}>
+          {f.conges.map(d=>{const dt=new Date(d+"T12:00:00");const lbl=`${JC[dt.getDay()]} ${dt.getDate()} ${MOIS[dt.getMonth()]} ${dt.getFullYear()}`;
+            return(<div key={d} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 14px",background:T.surface2,borderRadius:8,border:`1px solid ${T.border}`}}>
+              <span style={{fontSize:12,fontWeight:600,color:T.text2}}>{lbl}</span>
+              <button onClick={()=>rmConge(d)} style={{background:"none",border:"none",cursor:"pointer",color:T.text3,padding:2}}><X size={14}/></button></div>);})}</div>
+        {f.conges.length>0&&<button onClick={()=>setF(prev=>({...prev,conges:[]}))} style={{marginTop:8,background:"none",border:"none",cursor:"pointer",fontSize:11,color:T.text3,fontFamily:"'Outfit',sans-serif",textDecoration:"underline"}}>Tout supprimer</button>}
+        <div style={{marginTop:14,padding:12,background:T.surface2,borderRadius:10,border:`1px solid ${T.border}`}}>
+          <div style={{fontSize:11,color:T.text3,lineHeight:1.5}}>Les jours de congé bloquent automatiquement les créneaux dans le calendrier. Les clients ne pourront pas réserver sur ces jours via l'agent IA.</div></div>
+      </div>}
+
+      <div style={{display:"flex",gap:8,marginTop:16,borderTop:`1px solid ${T.border}`,paddingTop:16}}>
+        <Btn variant="secondary" onClick={()=>setEm(null)} T={T}>Annuler</Btn><div style={{flex:1}}/>
+        <Btn variant="accent" icon={Save} T={T} onClick={async()=>{
+          if(em==="new"){const newId="COIF"+String(Date.now()).slice(-6);const nc={...f,id:newId,actif:true};
+            setCoiffeurs([...coiffeurs,nc]);await fbPut(`coiffeurs/${newId}`,nc);}
+          else{setCoiffeurs(coiffeurs.map(c=>c.id===em?{...c,...f}:c));await fbPatch(`coiffeurs/${em}`,f);}
+          setEm(null);}}>Enregistrer</Btn></div></Modal></div>);
+}
+
+/* SALON SETTINGS */
+function SalonP({salon,setSalon,T}){
+  const [newFerm,setNewFerm]=useState("");
+  const [newSpec,setNewSpec]=useState("");
+  const addSpec=()=>{const s=newSpec.toLowerCase().trim();if(!s||(salon.specialisations||[]).includes(s))return;
+    setSalon({...salon,specialisations:[...(salon.specialisations||[]),s].sort()});setNewSpec("");};
+  const addFermeture=()=>{
+    const [from,to]=newFerm.split("|");if(!from)return;const end=to||from;
+    const ds=[];let cur=new Date(from+"T12:00:00");const last=new Date(end+"T12:00:00");
+    while(cur<=last){ds.push(fd(cur));cur=new Date(cur);cur.setDate(cur.getDate()+1);}
+    setSalon({...salon,fermetures_annuelles:[...new Set([...(salon.fermetures_annuelles||[]),...ds])].sort()});setNewFerm("");};
+  const rmFerm=d=>setSalon({...salon,fermetures_annuelles:(salon.fermetures_annuelles||[]).filter(x=>x!==d)});
+  /* Group consecutive dates into ranges for display */
+  const ranges=useMemo(()=>{const dates=(salon.fermetures_annuelles||[]).sort();if(!dates.length)return[];
+    const r=[];let start=dates[0],prev=dates[0];
+    for(let i=1;i<dates.length;i++){const d=new Date(dates[i]+"T12:00:00"),p=new Date(prev+"T12:00:00");
+      if((d-p)/(86400000)<=1){prev=dates[i];}else{r.push({from:start,to:prev,count:Math.round((new Date(prev+"T12:00:00")-new Date(start+"T12:00:00"))/86400000)+1});start=dates[i];prev=dates[i];}}
+    r.push({from:start,to:prev,count:Math.round((new Date(prev+"T12:00:00")-new Date(start+"T12:00:00"))/86400000)+1});return r;
+  },[salon.fermetures_annuelles]);
+  const fmtD=s=>{const d=new Date(s+"T12:00:00");return`${d.getDate()} ${MOIS[d.getMonth()].substring(0,4)} ${d.getFullYear()}`;};
+  const totalFerm=(salon.fermetures_annuelles||[]).length;
+
+  return(<div style={{padding:24,maxWidth:700,margin:"0 auto",width:"100%",overflow:"auto",flex:1}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
+      <div style={{width:44,height:44,borderRadius:12,background:T.accentBg,display:"flex",alignItems:"center",justifyContent:"center"}}><Store size={20} color="#fff"/></div>
+      <div><div style={{fontSize:20,fontWeight:800,color:T.text}}>{salon.nom||"Maniatis"}</div><div style={{fontSize:12,color:T.text3}}>{salon.adresse||"Paramètres du salon"}</div></div></div>
+
+    <div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:24,boxShadow:T.cardShadow,marginBottom:16}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:18}}><Clock size={16} color={T.accent}/><span style={{fontSize:14,fontWeight:700,color:T.text}}>Horaires d'ouverture</span></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <Inp label="Ouverture" value={salon.ouverture} onChange={v=>setSalon({...salon,ouverture:v})} type="time" T={T}/>
+        <Inp label="Fermeture" value={salon.fermeture} onChange={v=>setSalon({...salon,fermeture:v})} type="time" T={T}/></div>
+      <Inp label="Pause déjeuner (ex: 12:30-13:30)" value={salon.pause} onChange={v=>setSalon({...salon,pause:v})} T={T}/>
+      <div style={{marginBottom:14}}>
+        <label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}}>Jours de fermeture hebdomadaire</label>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{JALL.map(j=>(
+          <button key={j} onClick={()=>setSalon({...salon,jours_fermes:salon.jours_fermes.includes(j)?salon.jours_fermes.filter(x=>x!==j):[...salon.jours_fermes,j]})}
+            style={{padding:"6px 14px",borderRadius:20,border:`1.5px solid ${salon.jours_fermes.includes(j)?"#ef4444":T.border}`,
+              background:salon.jours_fermes.includes(j)?"#ef444418":"transparent",color:salon.jours_fermes.includes(j)?"#ef4444":T.text3,
+              fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'Outfit',sans-serif",textTransform:"capitalize"}}>{j}</button>))}</div></div>
+    </div>
+
+    {/* SPECIALISATIONS */}
+    <div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:24,boxShadow:T.cardShadow,marginBottom:16}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+        <Scissors size={16} color={T.accent}/>
+        <span style={{fontSize:14,fontWeight:700,color:T.text}}>Spécialisations</span>
+        <span style={{fontSize:10,fontWeight:700,color:T.accent,background:T.accent+"15",borderRadius:10,padding:"2px 8px",marginLeft:"auto"}}>{(salon.specialisations||[]).length}</span>
+      </div>
+      <p style={{fontSize:11,color:T.text3,marginBottom:14,lineHeight:1.5}}>Liste des spécialisations disponibles pour les coiffeurs et les prestations. Ajoutez ou supprimez selon vos besoins.</p>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        {(salon.specialisations||[]).map(s=>(
+          <div key={s} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:20,border:`1.5px solid ${T.accent}`,background:T.accent+"12",fontSize:11,fontWeight:600,color:T.accent,fontFamily:"'Outfit',sans-serif",textTransform:"capitalize"}}>
+            {s}<button onClick={()=>setSalon({...salon,specialisations:(salon.specialisations||[]).filter(x=>x!==s)})}
+              style={{background:"none",border:"none",cursor:"pointer",color:T.accent,padding:0,display:"flex"}}><X size={12}/></button></div>))}
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+        <div style={{flex:1}}><Inp label="Nouvelle spécialisation" value={newSpec} onChange={setNewSpec} placeholder="Ex: extensions, lissage brésilien..." T={T}/></div>
+        <Btn variant="accent" icon={Plus} small onClick={addSpec} disabled={!newSpec.trim()} T={T}>Ajouter</Btn></div>
+    </div>
+
+    {/* FERMETURES ANNUELLES */}
+    <div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:24,boxShadow:T.cardShadow,marginBottom:16}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+        <Calendar size={16} color={T.congeText}/>
+        <span style={{fontSize:14,fontWeight:700,color:T.text}}>Fermetures exceptionnelles</span>
+        {totalFerm>0&&<span style={{fontSize:10,fontWeight:700,color:T.congeText,background:T.congeBg,borderRadius:10,padding:"2px 8px",marginLeft:"auto"}}>{totalFerm} jour(s)</span>}
+      </div>
+      <p style={{fontSize:11,color:T.text3,marginBottom:14,lineHeight:1.5}}>Vacances, jours fériés, fermetures exceptionnelles. Ces jours bloqueront tous les agendas et empêcheront les réservations via l'agent IA.</p>
+      <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"flex-end"}}>
+        <div style={{flex:1}}><label style={{display:"block",fontSize:10,color:T.text3,marginBottom:3}}>Du</label>
+          <input type="date" value={newFerm.split("|")[0]||""} onChange={e=>setNewFerm(e.target.value+"|"+(newFerm.split("|")[1]||""))}
+            style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:12,fontFamily:"'Outfit',sans-serif",background:T.surface2,color:T.text,outline:"none"}}/></div>
+        <div style={{flex:1}}><label style={{display:"block",fontSize:10,color:T.text3,marginBottom:3}}>Au</label>
+          <input type="date" value={newFerm.split("|")[1]||""} onChange={e=>setNewFerm((newFerm.split("|")[0]||"")+"|"+e.target.value)}
+            style={{width:"100%",padding:"8px 10px",border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:12,fontFamily:"'Outfit',sans-serif",background:T.surface2,color:T.text,outline:"none"}}/></div>
+        <Btn variant="accent" icon={Plus} small onClick={addFermeture} disabled={!newFerm.split("|")[0]} T={T}>Ajouter</Btn></div>
+
+      {ranges.length===0&&<div style={{padding:16,textAlign:"center",color:T.text3,fontSize:12}}>Aucune fermeture exceptionnelle planifiée</div>}
+      <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:240,overflow:"auto"}}>
+        {ranges.map((r,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:T.congeBg,borderRadius:10,border:`1px solid ${T.congeBorder}`}}>
+            <div>
+              <div style={{fontSize:12,fontWeight:700,color:T.congeText}}>{r.from===r.to?fmtD(r.from):`${fmtD(r.from)} → ${fmtD(r.to)}`}</div>
+              <div style={{fontSize:10,color:T.congeText,opacity:0.7,marginTop:1}}>{r.count} jour(s) de fermeture</div>
+            </div>
+            <button onClick={()=>{const ds=[];let cur=new Date(r.from+"T12:00:00");const last=new Date(r.to+"T12:00:00");
+              while(cur<=last){ds.push(fd(cur));cur=new Date(cur);cur.setDate(cur.getDate()+1);}
+              setSalon({...salon,fermetures_annuelles:(salon.fermetures_annuelles||[]).filter(x=>!ds.includes(x))});}}
+              style={{background:"none",border:"none",cursor:"pointer",color:T.congeText,padding:4}}><X size={14}/></button>
+          </div>))}
+      </div>
+      {totalFerm>0&&<button onClick={()=>setSalon({...salon,fermetures_annuelles:[]})} style={{marginTop:8,background:"none",border:"none",cursor:"pointer",fontSize:11,color:T.text3,fontFamily:"'Outfit',sans-serif",textDecoration:"underline"}}>Tout supprimer</button>}
+    </div>
+
+    {/* ACCENT COLOR */}
+    <div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:24,boxShadow:T.cardShadow,marginBottom:16}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+        <div style={{width:18,height:18,borderRadius:6,background:T.accentBg}}/>
+        <span style={{fontSize:14,fontWeight:700,color:T.text}}>Couleur principale</span>
+        <span style={{fontSize:10,fontWeight:600,color:T.accent,background:T.accent+"15",borderRadius:10,padding:"2px 8px",marginLeft:"auto",fontFamily:"monospace"}}>{salon.accentColor||"#6366f1"}</span>
+      </div>
+      <p style={{fontSize:11,color:T.text3,marginBottom:14,lineHeight:1.5}}>Choisissez la couleur d'accentuation de l'interface : boutons, indicateurs, badges et éléments actifs du planning.</p>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(14,1fr)",gap:4}}>{COLORS.map(col=>{
+        const sel=(salon.accentColor||"#6366f1")===col;
+        return(<div key={col} onClick={async()=>{setSalon({...salon,accentColor:col});await fbPatch("config_salon",{accentColor:col});}}
+          style={{width:"100%",aspectRatio:"1",borderRadius:sel?8:5,background:col,cursor:"pointer",
+            border:sel?`2.5px solid ${T.text}`:"2.5px solid transparent",
+            boxShadow:sel?`0 0 10px ${col}60,inset 0 0 0 1px rgba(255,255,255,0.3)`:"none",
+            transform:sel?"scale(1.2)":"scale(1)",transition:"all 0.15s ease",position:"relative",zIndex:sel?2:1}}>
+        </div>);})}</div>
+      <div style={{marginTop:14,display:"flex",gap:10,alignItems:"center"}}>
+        <div style={{flex:1,height:6,borderRadius:3,background:T.accentBg}}/>
+        <div style={{width:32,height:32,borderRadius:10,background:T.accentBg,display:"flex",alignItems:"center",justifyContent:"center"}}><Check size={14} color="#fff"/></div>
+        <div style={{padding:"6px 16px",borderRadius:8,background:T.accentBg,fontSize:11,fontWeight:700,color:"#fff"}}>Aperçu</div>
+        <div style={{padding:"6px 16px",borderRadius:8,border:`1.5px solid ${T.accent}`,fontSize:11,fontWeight:700,color:T.accent,background:"transparent"}}>Contour</div>
+      </div>
+    </div>
+
+    <div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:24,boxShadow:T.cardShadow}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}><Calendar size={16} color={T.accent}/><span style={{fontSize:14,fontWeight:700,color:T.text}}>Google Calendar</span></div>
+      <p style={{fontSize:13,color:T.text2,lineHeight:1.6,margin:0}}>
+        Les QR codes de synchronisation Google Calendar sont disponibles dans chaque fiche coiffeur (onglet Équipe). Les coiffeurs peuvent scanner le QR pour s'abonner à leur planning sur leur téléphone.
+      </p>
+    </div>
+
+    <div style={{marginTop:16,display:"flex",justifyContent:"flex-end"}}>
+      <Btn variant="accent" icon={Save} T={T} onClick={async()=>{
+        const cfg={nom_salon:salon.nom||"Maniatis",adresse:salon.adresse||"",
+          jours_fermes:(salon.jours_fermes||[]).join(","),
+          horaires_ouverture:Object.fromEntries(JALL.filter(j=>!salon.jours_fermes?.includes(j)).map(j=>[j,`${salon.ouverture||"09:30"}-${salon.fermeture||"19:00"}`])),
+          fermetures_annuelles:salon.fermetures_annuelles||[],
+          pause:salon.pause||"12:30-13:30"};
+        await fbPatch("config_salon",cfg);alert("Configuration sauvegardée ✓");
+      }}>Sauvegarder</Btn>
+    </div>
+  </div>);
+}
+/* MAIN */
+function App(){
+  const [dark,setDark]=useState(false);
+  const [curDate,setCurDate]=useState(new Date());const [view,setView]=useState("week");const [page,setPage]=useState("planning");
+  const [cfState,setCfState]=useState([]);const [layout,setLayout]=useState("stack");
+  const [rdvs,setRdvs]=useState([]);const [clients,setClients]=useState([]);
+  const [prestations,setPrestas]=useState([]);const [coiffeurs,setCoiffeurs]=useState([]);
+  const [salon,setSalon]=useState({ouverture:"09:30",fermeture:"19:00",jours_fermes:["lundi","dimanche"],specialisations:[],fermetures_annuelles:[],accentColor:"#6366f1"});
+  const T=useMemo(()=>makeTheme(dark?DARK:LIGHT,salon.accentColor),[dark,salon.accentColor]);
+  const [loading,setLoading]=useState(true);const [fbErr,setFbErr]=useState(null);
+  const [selRdv,setSelRdv]=useState(null);const [showCr,setShowCr]=useState(false);const [crDef,setCrDef]=useState({});
+  const [specFilter,setSpecFilter]=useState(null);
+
+  /* Firebase fetch */
+  const loadData=useCallback(async(initial)=>{
+    try{
+      const [cfData,prData,clData,rdvData,cfgData]=await Promise.all([
+        fb("coiffeurs"),fb("prestations"),fb("clients"),fb("rdvs"),fb("config_salon")]);
+      const co=transformCoiffeurs(cfData);
+      const pr=transformPrestations(prData);
+      const cl=transformClients(clData);
+      const rv=transformRdvs(rdvData);
+      const sa=transformSalon(cfgData,co);
+      setCoiffeurs(co);setPrestas(pr);setClients(cl);setRdvs(rv);setSalon(sa);
+      if(initial)setLoading(false);setFbErr(null);
+    }catch(e){console.error("Firebase fetch error:",e);setFbErr(e.message);if(initial)setLoading(false);}
+  },[]);
+  useEffect(()=>{loadData(true);},[loadData]);
+  /* Polling every 30s for live updates */
+  useEffect(()=>{const iv=setInterval(()=>loadData(false),30000);return()=>clearInterval(iv);},[loadData]);
+  const specList=useMemo(()=>[...new Set(prestations.filter(p=>p.actif&&p.specialisation).map(p=>p.specialisation))].sort(),[prestations]);
+  useEffect(()=>{if(specFilter&&!specList.includes(specFilter))setSpecFilter(null);},[specList,specFilter]);
+
+  const nav=dir=>{const d=new Date(curDate);if(view==="day")d.setDate(d.getDate()+dir);else if(view==="week")d.setDate(d.getDate()+7*dir);else d.setMonth(d.getMonth()+dir);setCurDate(d);};
+  const titleStr=()=>{if(view==="day")return`${JOURS[curDate.getDay()]} ${curDate.getDate()} ${MOIS[curDate.getMonth()]}`;
+    if(view==="week"){const ws=wkStart(curDate),we=new Date(ws);we.setDate(ws.getDate()+6);return`${ws.getDate()} ${ws.getMonth()===we.getMonth()?'':MOIS[ws.getMonth()].substring(0,3)} — ${we.getDate()} ${MOIS[we.getMonth()]}`;}
+    return`${MOIS[curDate.getMonth()]} ${curDate.getFullYear()}`;};
+  const allSel=cfState.length===0;
+  const toggleAll=()=>{if(allSel)setCfState(["__none__"]);else setCfState([]);};
+  const toggleCF=id=>{if(cfState.length===0)setCfState(coiffeurs.filter(c=>c.actif&&c.id!==id).map(c=>c.id));
+    else if(cfState.includes("__none__"))setCfState([id]);
+    else{const nf=cfState.includes(id)?cfState.filter(c=>c!==id):[...cfState,id];
+      if(nf.length===0)setCfState(["__none__"]);else if(nf.length===coiffeurs.filter(c=>c.actif).length)setCfState([]);else setCfState(nf);}};
+  const ef=(()=>{
+    let base=cfState.includes("__none__")?["__none__"]:cfState;
+    if(!specFilter)return base;
+    const specIds=coiffeurs.filter(c=>c.actif&&c.specialisations?.includes(specFilter)).map(c=>c.id);
+    if(specIds.length===0)return["__none__"];
+    if(base.length===0)return specIds; /* all selected → restrict to spec */
+    if(base.includes("__none__"))return["__none__"];
+    const inter=base.filter(id=>specIds.includes(id));
+    return inter.length===0?["__none__"]:inter;
+  })();
+  const clickSlot=(day,h,m,coifId)=>{setCrDef({date:day,hour:h,min:m,coif:coifId||""});setShowCr(true);};
+  const createRdv=async({client,coiffeur_id,prestation,date,time})=>{
+    const co=coiffeurs.find(c=>c.id===coiffeur_id);const rdvId=genRdvId();
+    const phone=(client.telephone||"").replace("+","");
+    const endMin=(parseInt(time.split(":")[0])*60+parseInt(time.split(":")[1]))+(prestation?.duree_minutes||60);
+    const dateHeure=`${date}T${time}:00`;const dateHeureFin=`${date}T${String(Math.floor(endMin/60)).padStart(2,"0")}:${String(endMin%60).padStart(2,"0")}:00`;
+    const rdvData={client_id:client.id||phone,client_nom:client.nom,client_prenom:client.prenom,client_telephone:phone,
+      coiffeur_id,coiffeur_prenom:co?.prenom||"",prestations_noms:prestation?.nom_court||"",prestations_ids:JSON.stringify([prestation?.id||""]),
+      date_heure:dateHeure,duree_totale_minutes:prestation?.duree_minutes||60,prix_total:prestation?.prix||0,
+      statut:"confirme",source:"sur_place",created_at:new Date().toISOString(),rappel_envoye:false,notes:""};
+    /* Optimistic update */
+    setRdvs(prev=>[...prev,{...rdvData,id:rdvId}]);
+    /* Firebase multi-path write */
+    const updates={};
+    updates[`rdvs/${rdvId}`]=rdvData;
+    updates[`rdv_confirmes/${rdvId}`]={coiffeur_id,date_heure:dateHeure,duree_totale_minutes:prestation?.duree_minutes||60};
+    if(phone)updates[`rdv_by_phone/${phone}/${rdvId}`]=true;
+    await fbMultiPatch(updates);
+    /* GCal sync */
+    const gcRes=await gcalSync("create",{rdv_id:rdvId,calendar_id:co?.google_calendar_id||"",
+      summary:`${client.nom} ${client.prenom} - ${prestation?.nom_court||"RDV"}`,
+      description:`👤 ${client.prenom} ${client.nom}\n📞 ${client.telephone||"N/A"}\n✂️ ${prestation?.nom_court||""}\n💰 ${prestation?.prix||0}€\n⏱️ ${prestation?.duree_minutes||60} min\nSource: planning`,
+      start:dateHeure,end:dateHeureFin});
+    if(gcRes?.google_event_id)await fbPatch(`rdvs/${rdvId}`,{google_event_id:gcRes.google_event_id});
+  };
+  const navItems=[{id:"planning",l:"Planning",i:Calendar},{id:"clients",l:"Clients",i:Users},{id:"prestations",l:"Prestations",i:Scissors},
+    {id:"coiffeurs",l:"Équipe",i:User},{id:"salon",l:"Salon",i:Store},{id:"dashboard",l:"Dashboard",i:BarChart3}];
+
+  if(loading)return(
+    <div style={{fontFamily:"'Outfit',sans-serif",background:T.bg,height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+      <link href={FONT_URL} rel="stylesheet"/>
+      <div style={{width:40,height:40,border:`3px solid ${T.border}`,borderTopColor:T.accent,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+      <div style={{color:T.text2,fontSize:14,fontWeight:600}}>Chargement du planning...</div>
+      {fbErr&&<div style={{color:"#ef4444",fontSize:12,maxWidth:400,textAlign:"center"}}>Erreur: {fbErr}</div>}
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>);
+
+  return(
+    <div style={{fontFamily:"'Outfit',sans-serif",background:T.bg,height:"100vh",display:"flex",flexDirection:"column",color:T.text,overflow:"hidden"}}>
+      <link href={FONT_URL} rel="stylesheet"/>
+      <style>{`*{box-sizing:border-box;margin:0;padding:0}body{background:${T.bg};overflow:hidden}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}select option{background:${T.surface2};color:${T.text}}@keyframes qrTimer{from{width:100%}to{width:0%}}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      {fbErr&&<div style={{background:"#fef2f2",borderBottom:"1px solid #fecaca",padding:"6px 20px",fontSize:11,color:"#dc2626",display:"flex",alignItems:"center",gap:8}}>
+        <AlertTriangle size={14}/> Connexion Firebase perdue — données potentiellement obsolètes
+        <button onClick={()=>loadData(false)} style={{marginLeft:"auto",background:"#dc2626",color:"#fff",border:"none",borderRadius:4,padding:"2px 10px",fontSize:10,cursor:"pointer",fontFamily:"'Outfit',sans-serif"}}>Réessayer</button>
+      </div>}
+
+      <header style={{background:T.surface,borderBottom:`1px solid ${T.border}`,padding:"0 20px",display:"flex",alignItems:"center",height:56,gap:16,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:34,height:34,borderRadius:10,background:T.accentBg,display:"flex",alignItems:"center",justifyContent:"center"}}><Scissors size={16} color="#fff"/></div>
+          <div style={{fontSize:15,fontWeight:800,letterSpacing:"-0.02em"}}>{(salon.nom||"Maniatis").split(" - ")[0]} <span style={{fontWeight:400,color:T.text3,fontSize:12}}>{(salon.nom||"").split(" - ")[1]||""}</span></div></div>
+        <div style={{width:1,height:24,background:T.border}}/>
+        <nav style={{display:"flex",gap:1}}>{navItems.map(n=>(
+          <button key={n.id} onClick={()=>setPage(n.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:8,border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'Outfit',sans-serif",
+            background:page===n.id?T.surface3:"transparent",color:page===n.id?T.text:T.text3}}><n.i size={14}/>{n.l}</button>))}</nav>
+        <div style={{flex:1}}/>
+        <button onClick={()=>setDark(!dark)} style={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:6,cursor:"pointer",display:"flex",color:T.text2}}>
+          {dark?<Sun size={16}/>:<Moon size={16}/>}</button>
+        {page==="planning"&&(<div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{display:"flex",gap:1,background:T.surface2,borderRadius:8,padding:2,border:`1px solid ${T.border}`}}>
+            {[{id:"day",l:"Jour"},{id:"week",l:"Semaine"},{id:"month",l:"Mois"}].map(v=><button key={v.id} onClick={()=>setView(v.id)}
+              style={{padding:"5px 12px",borderRadius:6,border:"none",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'Outfit',sans-serif",
+                background:view===v.id?T.accent:"transparent",color:view===v.id?"#fff":T.text3}}>{v.l}</button>)}</div>
+          <div style={{display:"flex",gap:1,background:T.surface2,borderRadius:8,padding:2,border:`1px solid ${T.border}`}}>
+            {[{id:"stack",l:"Superposé"},{id:"sbs",l:"Côte à côte"}].map(v=><button key={v.id} onClick={()=>setLayout(v.id)}
+              style={{padding:"5px 10px",borderRadius:6,border:"none",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'Outfit',sans-serif",
+                background:layout===v.id?T.accent:"transparent",color:layout===v.id?"#fff":T.text3}}>{v.l}</button>)}</div>
+          <Btn variant="accent" icon={Plus} small onClick={()=>{setCrDef({});setShowCr(true);}} T={T}>Nouveau RDV</Btn></div>)}
+      </header>
+
+      {page==="planning"&&(
+        <div style={{flex:1,display:"flex",flexDirection:"column",padding:"14px 20px",gap:10,overflow:"hidden"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:3}}>
+              <button onClick={()=>nav(-1)} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:5,cursor:"pointer",display:"flex",color:T.text2}}><ChevronLeft size={16}/></button>
+              <button onClick={()=>setCurDate(new Date())} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700,color:T.text2,fontFamily:"'Outfit',sans-serif"}}>Aujourd'hui</button>
+              <button onClick={()=>nav(1)} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:5,cursor:"pointer",display:"flex",color:T.text2}}><ChevronRight size={16}/></button></div>
+            <h1 style={{fontSize:18,fontWeight:800,margin:0,letterSpacing:"-0.02em"}}>{titleStr()}</h1>
+            <div style={{flex:1}}/>
+            {/* Spec filter */}
+            <div style={{display:"flex",alignItems:"center",gap:3}}>
+              <Filter size={12} color={specFilter?T.accent:T.text3}/>
+              {specList.map(s=>{const active=specFilter===s;const matchCount=coiffeurs.filter(c=>c.actif&&c.specialisations?.includes(s)).length;
+                return(<button key={s} onClick={()=>setSpecFilter(active?null:s)}
+                  style={{padding:"4px 10px",borderRadius:16,border:`1.5px solid ${active?T.accent:T.border}`,
+                    background:active?T.accent+"18":"transparent",color:active?T.accent:T.text3,
+                    fontSize:10,fontWeight:active?700:500,cursor:"pointer",fontFamily:"'Outfit',sans-serif",textTransform:"capitalize",
+                    display:"flex",alignItems:"center",gap:4}}>
+                  {s}<span style={{fontSize:8,fontWeight:700,opacity:0.6}}>{matchCount}</span></button>);})}
+            </div>
+            <div style={{width:1,height:20,background:T.border}}/>
+            <button onClick={toggleAll} style={{display:"flex",alignItems:"center",gap:4,padding:"5px 10px",borderRadius:8,border:`1px solid ${T.border}`,
+              background:allSel?T.surface3:T.surface,cursor:"pointer",fontSize:10,fontWeight:700,color:allSel?T.text:T.text3,fontFamily:"'Outfit',sans-serif"}}>
+              {allSel?<Eye size={12}/>:<EyeOff size={12}/>}{allSel?"Tout masquer":"Tout afficher"}</button>
+            <div style={{display:"flex",gap:4}}>{coiffeurs.filter(c=>c.actif).map(c=>{const isA=ef.length===0||ef.includes(c.id);
+              const matchesSpec=!specFilter||c.specialisations?.includes(specFilter);
+              return(<button key={c.id} onClick={()=>toggleCF(c.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:8,cursor:"pointer",fontFamily:"'Outfit',sans-serif",
+                border:`1.5px solid ${isA?c.couleur:T.border}`,background:isA?c.couleur+"15":"transparent",opacity:isA?1:matchesSpec?0.35:0.15,
+                transition:"all 0.15s"}}>
+                <div style={{width:7,height:7,borderRadius:4,background:c.couleur}}/><span style={{fontSize:11,fontWeight:700,color:isA?c.couleur:T.text3}}>{cLabel(c)}</span>
+                {specFilter&&matchesSpec&&<Check size={10} color={T.accent}/>}</button>);})}</div>
+          </div>
+          <Indicators rdvs={rdvs} view={view} currentDate={curDate} cf={ef} coiffeurs={coiffeurs} salon={salon} T={T}/>
+          <div style={{flex:1,background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:T.cardShadow}}>
+            {view==="week"&&layout==="stack"&&<WeekView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onSlot={clickSlot} onRdv={setSelRdv} salon={salon} T={T}/>}
+            {view==="week"&&layout==="sbs"&&<WeekSbsView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onSlot={clickSlot} onRdv={setSelRdv} salon={salon} T={T}/>}
+            {view==="day"&&layout==="stack"&&<DayStackView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onSlot={clickSlot} onRdv={setSelRdv} salon={salon} T={T}/>}
+            {view==="day"&&layout==="sbs"&&<DayView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onSlot={clickSlot} onRdv={setSelRdv} salon={salon} T={T}/>}
+            {view==="month"&&layout==="stack"&&<MonthView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onDay={d=>{setCurDate(d);setView("day");}} salon={salon} T={T}/>}
+            {view==="month"&&layout==="sbs"&&<MonthSbsView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onDay={d=>{setCurDate(d);setView("day");}} salon={salon} T={T}/>}
+          </div>
+        </div>
+      )}
+      {page==="clients"&&<ClientsP clients={clients} setClients={setClients} T={T}/>}
+      {page==="prestations"&&<PrestationsP prestations={prestations} setPrestations={setPrestas} salon={salon} T={T}/>}
+      {page==="coiffeurs"&&<CoiffeursP coiffeurs={coiffeurs} setCoiffeurs={setCoiffeurs} salon={salon} T={T}/>}
+      {page==="salon"&&<SalonP salon={salon} setSalon={setSalon} T={T}/>}
+      {page==="dashboard"&&<Dashboard rdvs={rdvs} coiffeurs={coiffeurs} prestations={prestations} clients={clients} T={T}/>}
+
+      <RdvDetail rdv={selRdv} open={!!selRdv} onClose={()=>setSelRdv(null)}
+        onCancel={async id=>{
+          setRdvs(rdvs.map(r=>r.id===id?{...r,statut:"annule"}:r));
+          const rdv=rdvs.find(r=>r.id===id);
+          await fbMultiPatch({[`rdvs/${id}/statut`]:"annule",[`rdv_confirmes/${id}`]:null});
+          if(rdv?.google_event_id){const co=coiffeurs.find(c=>c.id===rdv.coiffeur_id);
+            await gcalSync("delete",{calendar_id:co?.google_calendar_id||"",event_id:rdv.google_event_id});}
+        }}
+        onUpdate={async(id,data)=>{
+          setRdvs(rdvs.map(r=>r.id===id?{...r,...data}:r));
+          const oldRdv=rdvs.find(r=>r.id===id);
+          await fbPatch(`rdvs/${id}`,data);
+          await fbPatch(`rdv_confirmes/${id}`,{coiffeur_id:data.coiffeur_id||oldRdv?.coiffeur_id,
+            date_heure:data.date_heure||oldRdv?.date_heure,duree_totale_minutes:data.duree_totale_minutes||oldRdv?.duree_totale_minutes});
+          if(oldRdv?.google_event_id){const co=coiffeurs.find(c=>c.id===(data.coiffeur_id||oldRdv.coiffeur_id));
+            const dur=data.duree_totale_minutes||oldRdv.duree_totale_minutes||60;const dh=data.date_heure||oldRdv.date_heure;
+            const endMin=parseInt(dh.split("T")[1].split(":")[0])*60+parseInt(dh.split("T")[1].split(":")[1])+dur;
+            const dateHeureFin=dh.split("T")[0]+`T${String(Math.floor(endMin/60)).padStart(2,"0")}:${String(endMin%60).padStart(2,"0")}:00`;
+            await gcalSync("update",{calendar_id:co?.google_calendar_id||"",event_id:oldRdv.google_event_id,
+              summary:`${data.client_nom||oldRdv.client_nom} ${data.client_prenom||oldRdv.client_prenom} - ${data.prestations_noms||oldRdv.prestations_noms}`,
+              start:dh,end:dateHeureFin});}
+        }}
+        coiffeurs={coiffeurs} prestations={prestations} clients={clients} salon={salon} T={T}/>
+      <CreateRdv open={showCr} onClose={()=>setShowCr(false)} onCreate={createRdv}
+        iDate={crDef.date} iHour={crDef.hour} iMin={crDef.min} iCoif={crDef.coif||""}
+        coiffeurs={coiffeurs} prestations={prestations} clients={clients} rdvs={rdvs} salon={salon} T={T}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
