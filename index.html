@@ -163,7 +163,7 @@ const COLORS=[
   "#7dd3fc","#93c5fd","#a5b4fc","#c4b5fd","#d8b4fe","#f0abfc","#f9a8d4","#fda4af",
   "#b91c1c","#c2410c","#a16207","#4d7c0f","#15803d","#0f766e","#0369a1","#1d4ed8",
   "#4338ca","#6d28d9","#7e22ce","#a21caf","#be185d","#9f1239","#78350f","#365314",
-  "#134e4a","#164e63","#1e3a5f","#312e81","#4c1d95","#701a75","#831843","#3f3f46",
+  "#134e4a","#164e63","#1e3a5f","#312e81","#4c1d95","#701a75","#831843","#3f3f46","#18181b",
 ];
 
 const SPECIALISATIONS_LIST=["femme","homme","enfant","coloriste","barbier"];
@@ -658,14 +658,14 @@ function MonthSbsView({currentDate,rdvs,cf,coiffeurs,onDay,salon,T}){
 
 /* RDV DETAIL */
 function RdvDetail({rdv,open,onClose,onCancel,onUpdate,coiffeurs,prestations,clients,salon,T}){
-  const [editing,setEditing]=useState(false);
+  const [editing,setEditing]=useState(false);const [confirmCancel,setConfirmCancel]=useState(false);
   const [sCo,setSCo]=useState("");const [sP,setSP]=useState("");
   const [date,setDate]=useState("");const [time,setTime]=useState("");
   const [clientNom,setClientNom]=useState("");const [clientPrenom,setClientPrenom]=useState("");const [clientTel,setClientTel]=useState("");
   useEffect(()=>{if(rdv&&open){const dt=new Date(rdv.date_heure);
     setSCo(rdv.coiffeur_id);setDate(fd(dt));setTime(ft(dt.getHours(),dt.getMinutes()));
     setClientNom(rdv.client_nom||"");setClientPrenom(rdv.client_prenom||"");setClientTel(rdv.client_telephone||"");
-    try{setSP(JSON.parse(rdv.prestations_ids)[0]||"");}catch(e){setSP("");}setEditing(false);}},[rdv,open]);
+    try{setSP(JSON.parse(rdv.prestations_ids)[0]||"");}catch(e){setSP("");}setEditing(false);setConfirmCancel(false);}},[rdv,open]);
   if(!rdv)return null;const co=coiffeurs.find(c=>c.id===rdv.coiffeur_id),dt=new Date(rdv.date_heure),ed=new Date(dt.getTime()+rdv.duree_totale_minutes*60000);
   const prestaOpts=[{value:"",label:"Choisir..."},...prestations.filter(p=>p.actif).map(p=>({
     value:p.id,label:`${p.id} · ${p.nom_court} — ${p.prix}€ (${p.duree_minutes}min)`}))];
@@ -688,7 +688,7 @@ function RdvDetail({rdv,open,onClose,onCancel,onUpdate,coiffeurs,prestations,cli
               <div style={{fontSize:13,fontWeight:600,color:T.text}}>{it.v}</div></div>))}
         </div>
         <div style={{display:"flex",gap:8,borderTop:`1px solid ${T.border}`,paddingTop:16}}>
-          <Btn variant="danger" icon={Trash2} onClick={()=>{onCancel(rdv.id);onClose();}} T={T}>Annuler RDV</Btn>
+          <Btn variant="danger" icon={Trash2} onClick={()=>setConfirmCancel(true)} T={T}>Annuler RDV</Btn>
           <div style={{flex:1}}/><Btn variant="accent" icon={Edit} onClick={()=>setEditing(true)} T={T}>Modifier</Btn></div>
       </>:<>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -711,7 +711,9 @@ function RdvDetail({rdv,open,onClose,onCancel,onUpdate,coiffeurs,prestations,cli
           <Btn variant="secondary" onClick={()=>setEditing(false)} T={T}>Annuler</Btn>
           <div style={{flex:1}}/><Btn variant="accent" icon={Save} onClick={saveEdit} disabled={!sP||!sCo||!date||!time||(()=>{if(!sCo||!date)return false;const coE=coiffeurs.find(c=>c.id===sCo);if(!coE)return false;const dE=new Date(date+"T12:00:00");if(isSalonFerme(dE,salon))return true;if(coE.conges?.includes(date))return true;if(!coE.horaires?.[JOURS[dE.getDay()]])return true;if(time){const[tH,tM]=time.split(':').map(Number);if(isOffSlot(dE,coE,tH,tM))return true;}return false;})()} T={T}>Enregistrer</Btn></div>
       </>}
-    </div></Modal>);
+    </div></Modal>
+    <ConfirmDialog open={confirmCancel} T={T} title="Annuler ce rendez-vous ?" message={rdv?`Le RDV de ${rdv.client_prenom} ${rdv.client_nom} (${rdv.prestations_noms}) sera annulé.`:""} confirmLabel="Annuler le RDV"
+      onCancel={()=>setConfirmCancel(false)} onConfirm={()=>{setConfirmCancel(false);onCancel(rdv.id);onClose();}}/>);
 }
 
 /* CREATE RDV */
