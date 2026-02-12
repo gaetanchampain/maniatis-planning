@@ -673,7 +673,7 @@ function RdvDetail({rdv,open,onClose,onCancel,onUpdate,coiffeurs,prestations,cli
     onUpdate(rdv.id,{coiffeur_id:sCo,coiffeur_prenom:coNew?.prenom||"",prestations_noms:p?.nom_court||rdv.prestations_noms,prestations_ids:JSON.stringify([sP]),
       date_heure:`${date}T${time}:00`,duree_totale_minutes:p?.duree_minutes||rdv.duree_totale_minutes,prix_total:p?.prix??rdv.prix_total,
       client_nom:clientNom,client_prenom:clientPrenom,client_telephone:clientTel});onClose();};
-  return(<Modal open={open} onClose={onClose} title={editing?"Modifier le rendez-vous":"Détail du rendez-vous"} width={560} T={T}>
+  return(<><Modal open={open} onClose={onClose} title={editing?"Modifier le rendez-vous":"Détail du rendez-vous"} width={560} T={T}>
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
       {!editing?<>
         <div style={{display:"flex",alignItems:"center",gap:14,padding:16,background:T.surface2,borderRadius:14}}>
@@ -713,7 +713,7 @@ function RdvDetail({rdv,open,onClose,onCancel,onUpdate,coiffeurs,prestations,cli
       </>}
     </div></Modal>
     <ConfirmDialog open={confirmCancel} T={T} title="Annuler ce rendez-vous ?" message={rdv?`Le RDV de ${rdv.client_prenom} ${rdv.client_nom} (${rdv.prestations_noms}) sera annulé.`:""} confirmLabel="Annuler le RDV"
-      onCancel={()=>setConfirmCancel(false)} onConfirm={()=>{setConfirmCancel(false);onCancel(rdv.id);onClose();}}/>);
+      onCancel={()=>setConfirmCancel(false)} onConfirm={()=>{setConfirmCancel(false);onCancel(rdv.id);onClose();}}/></>);
 }
 
 /* CREATE RDV */
