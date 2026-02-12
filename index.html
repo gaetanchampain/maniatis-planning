@@ -229,6 +229,22 @@ function Modal({open,onClose,title,children,width,T}){
         <button onClick={onClose} style={{background:T.surface2,border:"none",cursor:"pointer",padding:6,borderRadius:8,color:T.text3,display:"flex"}}><X size={16}/></button></div>
       <div style={{padding:24}}>{children}</div></div></div>);}
 
+function ConfirmDialog({open,onConfirm,onCancel,title,message,confirmLabel,T}){
+  if(!open)return null;
+  return(<div style={{position:"fixed",inset:0,zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={onCancel}>
+    <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.35)",backdropFilter:"blur(6px)"}}/>
+    <div onClick={e=>e.stopPropagation()} style={{position:"relative",background:T.surface,borderRadius:20,width:400,maxWidth:"90vw",border:`1px solid ${T.border}`,boxShadow:T.hoverShadow,overflow:"hidden"}}>
+      <div style={{padding:"28px 28px 0",textAlign:"center"}}>
+        <div style={{width:48,height:48,borderRadius:14,background:T.dangerBg||"#fee2e2",display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:14}}>
+          <AlertTriangle size={22} color={T.dangerText||"#dc2626"}/></div>
+        <h3 style={{fontSize:16,fontWeight:700,color:T.text,margin:"0 0 8px"}}>{title||"Confirmer"}</h3>
+        <p style={{fontSize:13,color:T.text3,lineHeight:1.5,margin:0}}>{message}</p></div>
+      <div style={{display:"flex",gap:10,padding:"20px 28px 24px",justifyContent:"center"}}>
+        <button onClick={onCancel} style={{flex:1,padding:"10px 20px",borderRadius:10,border:`1px solid ${T.border}`,background:T.surface2,color:T.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Outfit',sans-serif"}}>Annuler</button>
+        <button onClick={onConfirm} style={{flex:1,padding:"10px 20px",borderRadius:10,border:"none",background:"#dc2626",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Outfit',sans-serif"}}>
+          {confirmLabel||"Supprimer"}</button></div></div></div>);
+}
+
 function Inp({label,value,onChange,placeholder,type,icon:Ic,T}){
   return(<div style={{marginBottom:14}}>
     {label&&<label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em"}}>{label}</label>}
@@ -782,7 +798,7 @@ function Dashboard({rdvs,coiffeurs,prestations,clients,T}){
   const Card=({title,icon:Ic,children})=>(<div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,boxShadow:T.cardShadow,overflow:"hidden"}}>
     <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:8}}><Ic size={15} color={T.accent}/><span style={{fontSize:13,fontWeight:700,color:T.text}}>{title}</span></div>
     <div style={{padding:18}}>{children}</div></div>);
-  return(<div style={{padding:24,maxWidth:1100,margin:"0 auto",width:"100%",overflow:"auto",flex:1}}>
+  return(<div style={{overflow:"auto",flex:1,padding:"24px max(24px, calc((100% - 1100px) / 2))"}}>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200,1fr))",gap:12,marginBottom:20}}>
       {[{l:"CA Total",v:`${totalCA.toLocaleString()}€`,i:DollarSign,g:"linear-gradient(135deg,#10b981,#34d399)"},
         {l:"Total RDV",v:conf.length,i:Calendar,g:"linear-gradient(135deg,#6366f1,#818cf8)"},
@@ -820,9 +836,9 @@ function Dashboard({rdvs,coiffeurs,prestations,clients,T}){
 
 /* CRUD: CLIENTS */
 function ClientsP({clients,setClients,T}){
-  const [s,setS]=useState("");const [em,setEm]=useState(null);const [f,setF]=useState({nom:"",prenom:"",telephone:"",email:""});
+  const [s,setS]=useState("");const [em,setEm]=useState(null);const [f,setF]=useState({nom:"",prenom:"",telephone:"",email:""});const [confirmDel,setConfirmDel]=useState(null);
   const fl=clients.filter(c=>!s||`${c.nom} ${c.prenom} ${c.telephone}`.toUpperCase().includes(s.toUpperCase()));
-  return(<div style={{padding:24,maxWidth:900,margin:"0 auto",width:"100%",overflow:"auto",flex:1}}>
+  return(<div style={{overflow:"auto",flex:1,padding:"24px max(24px, calc((100% - 900px) / 2))"}}>
     <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
       <div style={{flex:1}}><Inp value={s} onChange={setS} placeholder="Rechercher un client..." icon={Search} T={T}/></div>
       <Btn variant="accent" icon={Plus} onClick={()=>{setF({nom:"",prenom:"",telephone:"",email:""});setEm("new");}} T={T}>Nouveau</Btn></div>
@@ -833,8 +849,7 @@ function ClientsP({clients,setClients,T}){
         <span style={{fontSize:13,fontWeight:600,color:T.text}}>{c.prenom} {c.nom}</span><span style={{fontSize:12,color:T.text2}}>{c.telephone}</span><Bdg small T={T}>{c.nombre_visites}</Bdg>
         <div style={{display:"flex",gap:4}}>
           <button onClick={()=>{setF({...c});setEm(c.id);}} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.text3}}><Edit size={14}/></button>
-          <button onClick={async()=>{const phone=(c.telephone||"").replace("+","").replace(/\s/g,"");
-            setClients(clients.filter(x=>x.id!==c.id));if(phone)await fbDel(`clients/${phone}`);}} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.dangerText}}><Trash2 size={14}/></button></div></div>))}</div>
+          <button onClick={()=>setConfirmDel(c)} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.dangerText}}><Trash2 size={14}/></button></div></div>))}</div>
     <Modal open={!!em} onClose={()=>setEm(null)} title={em==="new"?"Nouveau client":"Modifier client"} T={T}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><Inp label="Nom" value={f.nom} onChange={v=>setF({...f,nom:v})} T={T}/><Inp label="Prénom" value={f.prenom} onChange={v=>setF({...f,prenom:v})} T={T}/></div>
       <Inp label="Téléphone" value={f.telephone} onChange={v=>setF({...f,telephone:v})} icon={Phone} T={T}/>
@@ -844,12 +859,15 @@ function ClientsP({clients,setClients,T}){
           if(em==="new"){const nc={...f,id:phone||("C"+Date.now()),nombre_visites:0,created_at:new Date().toISOString()};
             setClients([...clients,nc]);if(phone)await fbPut(`clients/${phone}`,nc);}
           else{setClients(clients.map(c=>c.id===em?{...c,...f}:c));const oldPhone=(clients.find(c=>c.id===em)?.telephone||"").replace("+","").replace(/\s/g,"");
-            if(oldPhone)await fbPatch(`clients/${oldPhone}`,f);}setEm(null);}}>Enregistrer</Btn></div></Modal></div>);
+            if(oldPhone)await fbPatch(`clients/${oldPhone}`,f);}setEm(null);}}>Enregistrer</Btn></div></Modal>
+    <ConfirmDialog open={!!confirmDel} T={T} title="Supprimer ce client ?" message={confirmDel?`${confirmDel.prenom} ${confirmDel.nom} sera définitivement supprimé.`:""} confirmLabel="Supprimer"
+      onCancel={()=>setConfirmDel(null)} onConfirm={async()=>{const c=confirmDel;setConfirmDel(null);const phone=(c.telephone||"").replace("+","").replace(/\s/g,"");setClients(prev=>prev.filter(x=>x.id!==c.id));if(phone)await fbDel(`clients/${phone}`);}}/>
+    </div>);
 }
 
 /* CRUD: PRESTATIONS with sorting */
 function PrestationsP({prestations,setPrestations,salon,T}){
-  const [em,setEm]=useState(null);const [f,setF]=useState({id:"",nom:"",nom_court:"",categorie:"femme",specialisation:"femme",duree_minutes:60,prix:0});
+  const [em,setEm]=useState(null);const [f,setF]=useState({id:"",nom:"",nom_court:"",categorie:"femme",specialisation:"femme",duree_minutes:60,prix:0});const [confirmDel,setConfirmDel]=useState(null);
   const [fc,setFc]=useState("all");const [sort,setSort]=useState({key:"id",dir:1});
   const fl=prestations.filter(p=>fc==="all"||p.categorie===fc);
   const sorted=useMemo(()=>{return[...fl].sort((a,b)=>{
@@ -863,7 +881,7 @@ function PrestationsP({prestations,setPrestations,salon,T}){
   const SortBtn=({k,label})=>(<button onClick={()=>toggleSort(k)} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:sort.key===k?T.accent:T.text3,
     display:"flex",alignItems:"center",gap:3,fontFamily:"'Outfit',sans-serif",textTransform:"uppercase",padding:0}}>
     {label}{sort.key===k&&<span style={{fontSize:8}}>{sort.dir===1?"▲":"▼"}</span>}</button>);
-  return(<div style={{padding:24,maxWidth:1100,margin:"0 auto",width:"100%",overflow:"auto",flex:1}}>
+  return(<div style={{overflow:"auto",flex:1,padding:"24px max(24px, calc((100% - 1100px) / 2))"}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20}}>
       <div style={{display:"flex",gap:3,background:T.surface,borderRadius:10,padding:3,border:`1px solid ${T.border}`}}>
         {["all","femme","homme","enfant"].map(c=>(
@@ -885,7 +903,7 @@ function PrestationsP({prestations,setPrestations,salon,T}){
         <span style={{fontSize:13,fontWeight:700,color:T.text}}>{p.prix}€</span>
         <div style={{display:"flex",gap:4}}>
           <button onClick={()=>{setF({...p});setEm(p.id);}} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.text3}}><Edit size={14}/></button>
-          <button onClick={async()=>{setPrestations(prestations.filter(x=>x.id!==p.id));await fbDel(`prestations/${p.id}`);}} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.dangerText}}><Trash2 size={14}/></button></div>
+          <button onClick={()=>setConfirmDel(p)} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.dangerText}}><Trash2 size={14}/></button></div>
       </div>))}</div>
     <Modal open={!!em} onClose={()=>setEm(null)} title={em==="new"?"Nouvelle prestation":"Modifier"} T={T}>
       <Inp label="ID (ex: F26, H10)" value={f.id} onChange={v=>setF({...f,id:v})} T={T}/>
@@ -901,7 +919,10 @@ function PrestationsP({prestations,setPrestations,salon,T}){
       <div style={{display:"flex",gap:8,marginTop:8}}><Btn variant="secondary" onClick={()=>setEm(null)} T={T}>Annuler</Btn><div style={{flex:1}}/>
         <Btn variant="accent" icon={Save} T={T} onClick={async()=>{if(em==="new"){const newId="PREST"+String(Date.now()).slice(-6);const np={...f,id:newId,actif:true};
             setPrestations([...prestations,np]);await fbPut(`prestations/${newId}`,np);}
-          else{setPrestations(prestations.map(p=>p.id===em?{...p,...f}:p));await fbPatch(`prestations/${em}`,f);}setEm(null);}}>OK</Btn></div></Modal></div>);
+          else{setPrestations(prestations.map(p=>p.id===em?{...p,...f}:p));await fbPatch(`prestations/${em}`,f);}setEm(null);}}>OK</Btn></div></Modal>
+    <ConfirmDialog open={!!confirmDel} T={T} title="Supprimer cette prestation ?" message={confirmDel?`${confirmDel.nom_court||confirmDel.nom} sera définitivement supprimée.`:""} confirmLabel="Supprimer"
+      onCancel={()=>setConfirmDel(null)} onConfirm={async()=>{const p=confirmDel;setConfirmDel(null);setPrestations(prev=>prev.filter(x=>x.id!==p.id));await fbDel(`prestations/${p.id}`);}}/>
+    </div>);
 }
 
 /* QR CODE - real webcal sync from google_calendar_id */
@@ -1025,7 +1046,7 @@ function MacroPlanning({coiffeurs,salon,T}){
 
 /* CRUD: COIFFEURS with specialisations, horaires, congés, QR */
 function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
-  const [em,setEm]=useState(null);const [tab,setTab]=useState("info");const [saving,setSaving]=useState(false);const [savingMsg,setSavingMsg]=useState("");
+  const [em,setEm]=useState(null);const [tab,setTab]=useState("info");const [saving,setSaving]=useState(false);const [savingMsg,setSavingMsg]=useState("");const [confirmDel,setConfirmDel]=useState(null);
   const salonClosed=salon?.jours_fermes||["lundi","dimanche"];
   const [f,setF]=useState({prenom:"",nom:"",email:"",telephone:"",couleur:"#6366f1",specialisations:[],
     horaires:{mardi:{debut:"09:30",fin:"19:00"},mercredi:{debut:"09:30",fin:"19:00"},jeudi:{debut:"09:30",fin:"19:00"},vendredi:{debut:"09:30",fin:"19:00"},samedi:{debut:"09:00",fin:"18:00"}},
@@ -1041,7 +1062,7 @@ function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
     setF({prenom:"",nom:"",email:"",telephone:"",couleur:"#6366f1",specialisations:[],horaires:defH,pause_dejeuner:"12:30-13:30",conges:[]});setTab("info");setEm("new");};
   const jtxt=c=>{const ord=JALL.filter(j=>c.horaires&&c.horaires[j]);return ord.length?ord.map(j=>j.charAt(0).toUpperCase()+j.slice(1,3)).join(", "):"Non défini";};
 
-  return(<div style={{padding:24,maxWidth:1000,margin:"0 auto",width:"100%",overflow:"auto",flex:1}}>
+  return(<div style={{overflow:"auto",flex:1,padding:"24px max(24px, calc((100% - 1000px) / 2))"}}>
     <div style={{display:"flex",justifyContent:"flex-end",marginBottom:20}}><Btn variant="accent" icon={Plus} onClick={openNew} T={T}>Nouveau coiffeur</Btn></div>
     <MacroPlanning coiffeurs={coiffeurs} salon={salon} T={T}/>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340,1fr))",gap:14}}>
@@ -1062,7 +1083,7 @@ function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
         </div>
         <div style={{display:"flex",gap:8,marginTop:12,borderTop:`1px solid ${T.border}`,paddingTop:12}}>
           <Btn variant="secondary" icon={Edit} small onClick={()=>openEdit(c)} T={T}>Modifier</Btn>
-          <Btn variant="danger" icon={Trash2} small onClick={async()=>{if(!window.confirm(`Supprimer ${c.prenom} ${c.nom} ? Cette action est irréversible.`))return;setCoiffeurs(coiffeurs.filter(x=>x.id!==c.id));await fbDel(`coiffeurs/${c.id}`);}} T={T}>Suppr.</Btn></div>
+          <Btn variant="danger" icon={Trash2} small onClick={()=>setConfirmDel(c)} T={T}>Suppr.</Btn></div>
       </div>))}</div>
 
     <Modal open={!!em} onClose={()=>{if(!saving)setEm(null);}} title={em==="new"?"Nouveau coiffeur":"Modifier coiffeur"} width={620} T={T}>
@@ -1089,10 +1110,10 @@ function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
               fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'Outfit',sans-serif"}}>{s}</button>))}</div></div>
         <div style={{marginBottom:14}}>
           <label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}}>Couleur ({COLORS.length} choix)</label>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(14,1fr)",gap:3}}>{COLORS.map(col=>(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(19,1fr)",gap:2}}>{COLORS.map(col=>(
             <div key={col} onClick={()=>setF({...f,couleur:col})}
-              style={{width:"100%",aspectRatio:"1",borderRadius:4,background:col,cursor:"pointer",border:f.couleur===col?`2px solid ${T.text}`:"2px solid transparent",
-                boxShadow:f.couleur===col?`0 0 6px ${col}60`:"none"}}/>))}</div></div>
+              style={{width:"100%",aspectRatio:"1",borderRadius:3,background:col,cursor:"pointer",border:f.couleur===col?`2px solid ${T.text}`:"1.5px solid transparent",
+                boxShadow:f.couleur===col?`0 0 4px ${col}60`:"none"}}/>))}</div></div>
       </div>}
 
       {/* TAB: HORAIRES */}
@@ -1157,14 +1178,22 @@ function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
             const maxOrdre=Math.max(0,...coiffeurs.map(c=>c.ordre_affichage||0));
             const nc={...f,id:newId,actif:true,ordre_affichage:maxOrdre+1};
             await fbPut(`coiffeurs/${newId}`,nc);
-            setSavingMsg("Création du planning Google Calendar...");
+            setSavingMsg("Création du planning...");
             let calId="";
             try{const gcr=await gcalSync("create_calendar",{coiffeur_prenom:f.prenom||"Coiffeur",coiffeur_id:newId});
               if(gcr?.google_calendar_id){calId=gcr.google_calendar_id;}}catch(e){console.error("GCal creation error:",e);}
             const final={...nc,google_calendar_id:calId||""};
             setCoiffeurs(prev=>[...prev,final]);}
           else{setSavingMsg("Mise à jour...");setCoiffeurs(coiffeurs.map(c=>c.id===em?{...c,...f}:c));await fbPatch(`coiffeurs/${em}`,f);}
-          setEm(null);}finally{setSaving(false);setSavingMsg("");}}}>{saving?"En cours...":"Enregistrer"}</Btn></div></Modal></div>);
+          setEm(null);}finally{setSaving(false);setSavingMsg("");}}}>{saving?"En cours...":"Enregistrer"}</Btn></div></Modal>
+    <ConfirmDialog open={!!confirmDel} T={T} title="Supprimer ce coiffeur ?" message={confirmDel?`${confirmDel.prenom} ${confirmDel.nom} sera définitivement supprimé, ainsi que son planning.`:""} confirmLabel="Supprimer"
+      onCancel={()=>setConfirmDel(null)} onConfirm={async()=>{const c=confirmDel;setConfirmDel(null);
+        setCoiffeurs(prev=>prev.filter(x=>x.id!==c.id));
+        /* Delete Google Calendar if exists */
+        if(c.google_calendar_id){try{await gcalSync("delete_calendar",{calendar_id:c.google_calendar_id});}catch(e){console.error("GCal delete error:",e);}}
+        /* Delete all RDVs for this coiffeur */
+        await fbDel(`coiffeurs/${c.id}`);}}/>
+    </div>);
 }
 
 /* SALON SETTINGS */
@@ -1189,7 +1218,7 @@ function SalonP({salon,setSalon,T}){
   const fmtD=s=>{const d=new Date(s+"T12:00:00");return`${d.getDate()} ${MOIS[d.getMonth()].substring(0,4)} ${d.getFullYear()}`;};
   const totalFerm=(salon.fermetures_annuelles||[]).length;
 
-  return(<div style={{padding:24,maxWidth:700,margin:"0 auto",width:"100%",overflow:"auto",flex:1}}>
+  return(<div style={{overflow:"auto",flex:1,padding:"24px max(24px, calc((100% - 700px) / 2))"}}>
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
       <div style={{width:44,height:44,borderRadius:12,background:T.accentBg,display:"flex",alignItems:"center",justifyContent:"center"}}><Store size={20} color="#fff"/></div>
       <div><div style={{fontSize:20,fontWeight:800,color:T.text}}>{salon.nom||"Maniatis"}</div><div style={{fontSize:12,color:T.text3}}>{salon.adresse||"Paramètres du salon"}</div></div></div>
@@ -1270,13 +1299,13 @@ function SalonP({salon,setSalon,T}){
         <span style={{fontSize:10,fontWeight:600,color:T.accent,background:T.accent+"15",borderRadius:10,padding:"2px 8px",marginLeft:"auto",fontFamily:"monospace"}}>{salon.accentColor||"#6366f1"}</span>
       </div>
       <p style={{fontSize:11,color:T.text3,marginBottom:14,lineHeight:1.5}}>Choisissez la couleur d'accentuation de l'interface : boutons, indicateurs, badges et éléments actifs du planning.</p>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(14,1fr)",gap:4}}>{COLORS.map(col=>{
+      <div style={{display:"grid",gridTemplateColumns:"repeat(19,1fr)",gap:2}}>{COLORS.map(col=>{
         const sel=(salon.accentColor||"#6366f1")===col;
         return(<div key={col} onClick={async()=>{setSalon({...salon,accentColor:col});await fbPatch("config_salon",{accentColor:col});}}
-          style={{width:"100%",aspectRatio:"1",borderRadius:sel?8:5,background:col,cursor:"pointer",
-            border:sel?`2.5px solid ${T.text}`:"2.5px solid transparent",
-            boxShadow:sel?`0 0 10px ${col}60,inset 0 0 0 1px rgba(255,255,255,0.3)`:"none",
-            transform:sel?"scale(1.2)":"scale(1)",transition:"all 0.15s ease",position:"relative",zIndex:sel?2:1}}>
+          style={{width:"100%",aspectRatio:"1",borderRadius:sel?5:3,background:col,cursor:"pointer",
+            border:sel?`2px solid ${T.text}`:"1.5px solid transparent",
+            boxShadow:sel?`0 0 6px ${col}60`:"none",
+            transform:sel?"scale(1.15)":"scale(1)",transition:"all 0.15s ease",position:"relative",zIndex:sel?2:1}}>
         </div>);})}</div>
       <div style={{marginTop:14,display:"flex",gap:10,alignItems:"center"}}>
         <div style={{flex:1,height:6,borderRadius:3,background:T.accentBg}}/>
