@@ -56,6 +56,7 @@ function Store(p){return <SvgIcon {...p}><path d="M3 9l1-4h16l1 4"/><path d="M3 
 function Clock(p){return <SvgIcon {...p}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></SvgIcon>;}
 function Filter(p){return <SvgIcon {...p}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></SvgIcon>;}
 function AlertTriangle(p){return <SvgIcon {...p}><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></SvgIcon>;}
+function ArrowLeft(p){return <SvgIcon {...p}><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></SvgIcon>;}
 
 
 const FONT_URL = "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap";
@@ -243,6 +244,18 @@ function ConfirmDialog({open,onConfirm,onCancel,title,message,confirmLabel,T}){
         <button onClick={onCancel} style={{flex:1,padding:"10px 20px",borderRadius:10,border:`1px solid ${T.border}`,background:T.surface2,color:T.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Outfit',sans-serif"}}>Annuler</button>
         <button onClick={onConfirm} style={{flex:1,padding:"10px 20px",borderRadius:10,border:"none",background:"#dc2626",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Outfit',sans-serif"}}>
           {confirmLabel||"Supprimer"}</button></div></div></div>);
+}
+
+function SuccessToast({open,message,T}){
+  if(!open)return null;
+  return(<div style={{position:"fixed",top:24,left:"50%",transform:"translateX(-50%)",zIndex:1200,
+    background:T.surface,borderRadius:14,padding:"14px 24px",display:"flex",alignItems:"center",gap:12,
+    border:`1px solid ${T.border}`,boxShadow:"0 8px 30px rgba(0,0,0,0.12)",
+    animation:"slideDown .3s ease"}}>
+    <div style={{width:36,height:36,borderRadius:10,background:"#dcfce7",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <Check size={18} color="#16a34a"/></div>
+    <span style={{fontSize:14,fontWeight:600,color:T.text}}>{message}</span>
+  </div>);
 }
 
 function Inp({label,value,onChange,placeholder,type,icon:Ic,T}){
@@ -767,11 +780,15 @@ function CreateRdv({open,onClose,onCreate,iDate,iHour,iMin,iCoif,coiffeurs,prest
         <span style={{fontSize:11,color:T.text3}}>{sc.telephone}</span>
         <button onClick={()=>{setSc(null);if(!iCoif)setSCo("");setSP("");}} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:T.text3}}><X size={14}/></button></div>}
       {isnc&&!sc&&<div style={{padding:14,background:T.surface2,borderRadius:10,marginBottom:8}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+          <span style={{fontSize:12,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:"0.08em"}}>Nouveau client</span>
+          <button onClick={()=>setIsnc(false)} style={{display:"flex",alignItems:"center",gap:4,background:"none",border:"none",cursor:"pointer",color:T.accent,fontSize:12,fontWeight:600,fontFamily:"'Outfit',sans-serif"}}>
+            <ArrowLeft size={13}/>Retour</button></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <Inp label="Nom" value={nc.nom} onChange={v=>setNc({...nc,nom:v})} placeholder="DUPONT" T={T}/>
           <Inp label="Prénom" value={nc.prenom} onChange={v=>setNc({...nc,prenom:v})} placeholder="Marie" T={T}/></div>
         <Inp label="Téléphone" value={nc.telephone} onChange={v=>setNc({...nc,telephone:v})} icon={Phone} placeholder="+33..." T={T}/>
-        <Btn variant="ghost" small onClick={()=>setIsnc(false)} T={T}>← Client existant</Btn></div>}
+      </div>}
       <Sel label="Prestation" value={sP} onChange={setSP} T={T} options={prestaOpts}/>
       <Sel label="Coiffeur" value={sCo} onChange={setSCo} T={T} options={[{value:"",label:"Choisir..."},...coiffeurs.filter(c=>c.actif).map(c=>({value:c.id,label:cLabel(c)}))]}/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -1200,6 +1217,7 @@ function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
 
 /* SALON SETTINGS */
 function SalonP({salon,setSalon,T}){
+  const [showSaved,setShowSaved]=useState(false);
   const [newFerm,setNewFerm]=useState("");
   const [newSpec,setNewSpec]=useState("");
   const addSpec=()=>{const s=newSpec.toLowerCase().trim();if(!s||(salon.specialisations||[]).includes(s))return;
@@ -1331,9 +1349,10 @@ function SalonP({salon,setSalon,T}){
           horaires_ouverture:Object.fromEntries(JALL.filter(j=>!salon.jours_fermes?.includes(j)).map(j=>[j,`${salon.ouverture||"09:30"}-${salon.fermeture||"19:00"}`])),
           fermetures_annuelles:salon.fermetures_annuelles||[],
           pause:salon.pause||"12:30-13:30"};
-        await fbPatch("config_salon",cfg);alert("Configuration sauvegardée ✓");
+        await fbPatch("config_salon",cfg);setShowSaved(true);setTimeout(()=>setShowSaved(false),2500);
       }}>Sauvegarder</Btn>
     </div>
+    <SuccessToast open={showSaved} message="Configuration sauvegardée ✓" T={T}/>
   </div>);
 }
 /* MAIN */
@@ -1433,7 +1452,7 @@ function App(){
   return(
     <div style={{fontFamily:"'Outfit',sans-serif",background:T.bg,height:"100vh",display:"flex",flexDirection:"column",color:T.text,overflow:"hidden"}}>
       <link href={FONT_URL} rel="stylesheet"/>
-      <style>{`*{box-sizing:border-box;margin:0;padding:0}body{background:${T.bg};overflow:hidden}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}select option{background:${T.surface2};color:${T.text}}@keyframes qrTimer{from{width:100%}to{width:0%}}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`*{box-sizing:border-box;margin:0;padding:0}body{background:${T.bg};overflow:hidden}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}select option{background:${T.surface2};color:${T.text}}@keyframes qrTimer{from{width:100%}to{width:0%}}@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideDown{from{opacity:0;transform:translateX(-50%) translateY(-20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
       {fbErr&&<div style={{background:"#fef2f2",borderBottom:"1px solid #fecaca",padding:"6px 20px",fontSize:11,color:"#dc2626",display:"flex",alignItems:"center",gap:8}}>
         <AlertTriangle size={14}/> Connexion Firebase perdue — données potentiellement obsolètes
         <button onClick={()=>loadData(false)} style={{marginLeft:"auto",background:"#dc2626",color:"#fff",border:"none",borderRadius:4,padding:"2px 10px",fontSize:10,cursor:"pointer",fontFamily:"'Outfit',sans-serif"}}>Réessayer</button>
