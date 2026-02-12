@@ -1122,13 +1122,13 @@ function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><Inp label="Prénom" value={f.prenom} onChange={v=>setF({...f,prenom:v})} T={T}/><Inp label="Nom" value={f.nom} onChange={v=>setF({...f,nom:v})} T={T}/></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><Inp label="Email" value={f.email} onChange={v=>setF({...f,email:v})} icon={Mail} T={T}/><Inp label="Téléphone" value={f.telephone} onChange={v=>setF({...f,telephone:v})} icon={Phone} T={T}/></div>
         <div style={{marginBottom:14}}>
-          <label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}}>Spécialisations (Firebase)</label>
+          <label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}}>Spécialisations</label>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{(salon?.specialisations||SPECIALISATIONS_LIST).map(s=>(
             <button key={s} onClick={()=>toggleSpec(s)} style={{padding:"5px 14px",borderRadius:20,border:`1.5px solid ${f.specialisations.includes(s)?T.accent:T.border}`,
               background:f.specialisations.includes(s)?T.accent+"18":"transparent",color:f.specialisations.includes(s)?T.accent:T.text3,
               fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'Outfit',sans-serif"}}>{s}</button>))}</div></div>
         <div style={{marginBottom:14}}>
-          <label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}}>Couleur ({COLORS.length} choix)</label>
+          <label style={{display:"block",fontSize:11,fontWeight:600,color:T.text3,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}}>Couleur de l'agenda</label>
           <div style={{display:"grid",gridTemplateColumns:"repeat(19,1fr)",gap:2}}>{COLORS.map(col=>(
             <div key={col} onClick={()=>setF({...f,couleur:col})}
               style={{width:"100%",aspectRatio:"1",borderRadius:3,background:col,cursor:"pointer",border:f.couleur===col?`2px solid ${T.text}`:"1.5px solid transparent",
