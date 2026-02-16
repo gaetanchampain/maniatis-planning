@@ -62,7 +62,7 @@
     .footer-brand { font-family: 'Cormorant Garamond', serif; font-size: 14px; font-weight: 600; letter-spacing: 0.15em; color: #78716C; text-transform: uppercase; }
     .footer-addr { font-size: 12px; color: #78716C; margin-top: 4px; }
     .success-icon { width: 72px; height: 72px; border-radius: 50%; background: rgba(184,150,90,0.08); display: flex; align-items: center; justify-content: center; margin: 0 auto 24px; font-size: 32px; color: #B8965A; }
-    .scroll-list { max-height: 400px; overflow-y: auto; padding: 2px; margin: -2px; }
+    .scroll-list { max-height: calc(100vh - 280px); overflow-y: auto; padding: 2px; margin: -2px; }
     .spec-count { display: inline-block; background: rgba(184,150,90,0.12); color: #B8965A; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
     .pop-badge { display: inline-block; background: rgba(184,150,90,0.10); color: #B8965A; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
   </style>
@@ -427,20 +427,34 @@
       };
 
       // ═══ SUCCESS ═══
-      const renderSuccess = () => <div className="step" style={{textAlign:"center",padding:"32px 0"}}>
-        <div className="success-icon">✓</div>
-        <h1 className="heading" style={{fontSize:26,marginBottom:12}}>Rendez-vous confirmé</h1>
-        <p className="sub" style={{marginBottom:32,maxWidth:320,marginLeft:"auto",marginRight:"auto"}}>{booking?.message || "Votre rendez-vous a bien été enregistré. À bientôt au salon Maniatis !"}</p>
-        {booking?.rdv && <div style={{background:"#FFF",borderRadius:12,border:"1px solid #E7E5E4",padding:20,textAlign:"left",marginBottom:24}}>
-          <div className="recap-grid" style={{fontSize:14}}>
-            <div><span style={{color:"#78716C"}}>Date</span><br/><strong>{booking.rdv.date}</strong></div>
-            <div><span style={{color:"#78716C"}}>Heure</span><br/><strong>{booking.rdv.heure}</strong></div>
-            <div><span style={{color:"#78716C"}}>Coiffeur</span><br/><strong>{booking.rdv.coiffeur}</strong></div>
-            <div><span style={{color:"#78716C"}}>Prestations</span><br/><strong>{booking.rdv.prestations}</strong></div>
+      const renderSuccess = () => {
+        // Formater date/heure depuis selSlot (plus fiable que la réponse workflow)
+        const JOURS_FULL = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+        const MOIS_FULL = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+        let dateAffichee = booking?.rdv?.date || '';
+        let heureAffichee = booking?.rdv?.heure || '';
+        if (selSlot?.date) {
+          const d = new Date(selSlot.date + 'T12:00:00');
+          dateAffichee = JOURS_FULL[d.getDay()] + ' ' + d.getDate() + ' ' + MOIS_FULL[d.getMonth()];
+        }
+        if (selSlot?.heure_debut) {
+          heureAffichee = selSlot.heure_debut.replace(':', 'h');
+        }
+        return <div className="step" style={{textAlign:"center",padding:"32px 0"}}>
+          <div className="success-icon">✓</div>
+          <h1 className="heading" style={{fontSize:26,marginBottom:12}}>Rendez-vous confirmé</h1>
+          <p className="sub" style={{marginBottom:32,maxWidth:320,marginLeft:"auto",marginRight:"auto"}}>{booking?.message || "Votre rendez-vous a bien été enregistré. À bientôt au salon Maniatis !"}</p>
+          <div style={{background:"#FFF",borderRadius:12,border:"1px solid #E7E5E4",padding:20,textAlign:"left",marginBottom:24}}>
+            <div className="recap-grid" style={{fontSize:14}}>
+              <div><span style={{color:"#78716C"}}>Date</span><br/><strong>{dateAffichee}</strong></div>
+              <div><span style={{color:"#78716C"}}>Heure</span><br/><strong>{heureAffichee}</strong></div>
+              <div><span style={{color:"#78716C"}}>Coiffeur</span><br/><strong>{selSlot?.coiffeur_prenom || booking?.rdv?.coiffeur || ''}</strong></div>
+              <div><span style={{color:"#78716C"}}>Prestations</span><br/><strong>{prests.filter(p=>selPrests.includes(p.id)).map(p=>p.nom_court).join(', ') || booking?.rdv?.prestations || ''}</strong></div>
+            </div>
           </div>
-        </div>}
-        <button className="btn-outline" onClick={reset} style={{display:"inline-block",width:"auto"}}>Prendre un autre rendez-vous</button>
-      </div>;
+          <button className="btn-outline" onClick={reset} style={{display:"inline-block",width:"auto"}}>Prendre un autre rendez-vous</button>
+        </div>;
+      };
 
       return <>
         {error && <div className="error-bar"><span>{error}</span><button onClick={()=>setError(null)}>✕</button></div>}
