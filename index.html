@@ -680,8 +680,21 @@ function RdvDetail({rdv,open,onClose,onCancel,onUpdate,coiffeurs,prestations,cli
     setClientNom(rdv.client_nom||"");setClientPrenom(rdv.client_prenom||"");setClientTel(rdv.client_telephone||"");
     try{setSP(JSON.parse(rdv.prestations_ids)[0]||"");}catch(e){setSP("");}setEditing(false);setConfirmCancel(false);}},[rdv,open]);
   if(!rdv)return null;const co=coiffeurs.find(c=>c.id===rdv.coiffeur_id),dt=new Date(rdv.date_heure),ed=new Date(dt.getTime()+rdv.duree_totale_minutes*60000);
-  const prestaOpts=[{value:"",label:"Choisir..."},...prestations.filter(p=>p.actif).map(p=>({
+  const selPrestaD=prestations.find(p=>p.id===sP);
+  const selCoifD=coiffeurs.find(c=>c.id===sCo);
+  const filteredPrestasD=prestations.filter(p=>{if(!p.actif)return false;if(!selCoifD)return true;
+    if(!p.specialisation_requise)return true;return(selCoifD.specialisations||[]).includes(p.specialisation_requise);});
+  const filteredCoifsD=coiffeurs.filter(c=>{if(!c.actif)return false;if(!selPrestaD)return true;
+    if(!selPrestaD.specialisation_requise)return true;return(c.specialisations||[]).includes(selPrestaD.specialisation_requise);});
+  const prestaOpts=[{value:"",label:"Choisir..."},...filteredPrestasD.map(p=>({
     value:p.id,label:`${p.id} · ${p.nom_court} — ${p.prix}€ (${p.duree_minutes}min)`}))];
+  const coifOptsD=[{value:"",label:"Choisir..."},...filteredCoifsD.map(c=>({value:c.id,label:cLabel(c)}))];
+  const onChangePD=(v)=>{setSP(v);const p=prestations.find(x=>x.id===v);
+    if(p?.specialisation_requise&&sCo){const co2=coiffeurs.find(c=>c.id===sCo);
+      if(co2&&!(co2.specialisations||[]).includes(p.specialisation_requise))setSCo("");}};
+  const onChangeCD=(v)=>{setSCo(v);const co2=coiffeurs.find(c=>c.id===v);
+    if(co2&&sP){const p=prestations.find(x=>x.id===sP);
+      if(p?.specialisation_requise&&!(co2.specialisations||[]).includes(p.specialisation_requise))setSP("");}};
   const saveEdit=()=>{const p=prestations.find(x=>x.id===sP);const coNew=coiffeurs.find(c=>c.id===sCo);
     onUpdate(rdv.id,{coiffeur_id:sCo,coiffeur_prenom:coNew?.prenom||"",prestations_noms:p?.nom_court||rdv.prestations_noms,prestations_ids:JSON.stringify([sP]),
       date_heure:`${date}T${time}:00`,duree_totale_minutes:p?.duree_minutes||rdv.duree_totale_minutes,prix_total:p?.prix??rdv.prix_total,
@@ -708,8 +721,8 @@ function RdvDetail({rdv,open,onClose,onCancel,onUpdate,coiffeurs,prestations,cli
           <Inp label="Prénom" value={clientPrenom} onChange={setClientPrenom} T={T}/>
           <Inp label="Nom" value={clientNom} onChange={setClientNom} T={T}/></div>
         <Inp label="Téléphone" value={clientTel} onChange={setClientTel} icon={Phone} T={T}/>
-        <Sel label="Prestation" value={sP} onChange={setSP} T={T} options={prestaOpts}/>
-        <Sel label="Coiffeur" value={sCo} onChange={setSCo} T={T} options={[{value:"",label:"Choisir..."},...coiffeurs.filter(c=>c.actif).map(c=>({value:c.id,label:cLabel(c)}))]}/>
+        <Sel label="Prestation" value={sP} onChange={onChangePD} T={T} options={prestaOpts}/>
+        <Sel label="Coiffeur" value={sCo} onChange={onChangeCD} T={T} options={coifOptsD}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <Inp label="Date" value={date} onChange={setDate} type="date" T={T}/>
           <Sel label="Heure" value={time} onChange={setTime} T={T} options={mkTimes(salon)}/></div>
@@ -764,8 +777,22 @@ function CreateRdv({open,onClose,onCreate,iDate,iHour,iMin,iCoif,coiffeurs,prest
     return null;
   })();
   const canGo=ok&&!conflict;
-  const prestaOpts=[{value:"",label:"Choisir..."},...prestations.filter(p=>p.actif).map(p=>({
+  /* Cross-filtering: prestation ↔ coiffeur compatibility */
+  const selPresta=prestations.find(p=>p.id===sP);
+  const selCoif=coiffeurs.find(c=>c.id===sCo);
+  const filteredPrestas=prestations.filter(p=>{if(!p.actif)return false;if(!selCoif)return true;
+    if(!p.specialisation_requise)return true;return(selCoif.specialisations||[]).includes(p.specialisation_requise);});
+  const filteredCoifs=coiffeurs.filter(c=>{if(!c.actif)return false;if(!selPresta)return true;
+    if(!selPresta.specialisation_requise)return true;return(c.specialisations||[]).includes(selPresta.specialisation_requise);});
+  const prestaOpts=[{value:"",label:"Choisir..."},...filteredPrestas.map(p=>({
     value:p.id,label:`${p.id} · ${p.nom_court} — ${p.prix}€ (${p.duree_minutes}min)`}))];
+  const coifOpts=[{value:"",label:"Choisir..."},...filteredCoifs.map(c=>({value:c.id,label:cLabel(c)}))];
+  const onChangePresta=(v)=>{setSP(v);const p=prestations.find(x=>x.id===v);
+    if(p?.specialisation_requise&&sCo){const co=coiffeurs.find(c=>c.id===sCo);
+      if(co&&!(co.specialisations||[]).includes(p.specialisation_requise))setSCo("");}};
+  const onChangeCoif=(v)=>{setSCo(v);const co=coiffeurs.find(c=>c.id===v);
+    if(co&&sP){const p=prestations.find(x=>x.id===sP);
+      if(p?.specialisation_requise&&!(co.specialisations||[]).includes(p.specialisation_requise))setSP("");}};
   if(!open)return null;
   return(<Modal open={open} onClose={onClose} title="Nouveau rendez-vous" width={560} T={T}>
     <div style={{display:"flex",flexDirection:"column",gap:4}}>
@@ -789,8 +816,8 @@ function CreateRdv({open,onClose,onCreate,iDate,iHour,iMin,iCoif,coiffeurs,prest
           <Inp label="Prénom" value={nc.prenom} onChange={v=>setNc({...nc,prenom:v})} placeholder="Marie" T={T}/></div>
         <Inp label="Téléphone" value={nc.telephone} onChange={v=>setNc({...nc,telephone:v})} icon={Phone} placeholder="+33..." T={T}/>
       </div>}
-      <Sel label="Prestation" value={sP} onChange={setSP} T={T} options={prestaOpts}/>
-      <Sel label="Coiffeur" value={sCo} onChange={setSCo} T={T} options={[{value:"",label:"Choisir..."},...coiffeurs.filter(c=>c.actif).map(c=>({value:c.id,label:cLabel(c)}))]}/>
+      <Sel label="Prestation" value={sP} onChange={onChangePresta} T={T} options={prestaOpts}/>
+      <Sel label="Coiffeur" value={sCo} onChange={onChangeCoif} T={T} options={coifOpts}/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
         <Inp label="Date" value={date} onChange={setDate} type="date" T={T}/>
         <Sel label="Heure" value={time} onChange={setTime} T={T} options={mkTimes(salon)}/></div>
@@ -1035,7 +1062,7 @@ function QrReveal({T,calendarId,coiffeurName}){
 /* MACRO PLANNING - trimester or annual congé overview per coiffeur */
 function MacroPlanning({coiffeurs,salon,T}){
   const [macroView,setMacroView]=useState("trim"); /* trim | year */
-  const [startMonth,setStartMonth]=useState(()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1);});
+  const [startMonth,setStartMonth]=useState(()=>{const n=new Date();const q=Math.floor(n.getMonth()/3)*3;return new Date(n.getFullYear(),q,1);});
   const [year,setYear]=useState(()=>new Date().getFullYear());
   const n=new Date();
   const activeCoifs=coiffeurs.filter(c=>c.actif);
