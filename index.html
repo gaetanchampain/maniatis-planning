@@ -998,12 +998,6 @@ function ClientsP({clients,setClients,rdvs,coiffeurs,prestations,T}){
             if(oldPhone)await fbPatch(`clients/${oldPhone}`,f);}setEm(null);}}>Enregistrer</Btn></div></Modal>
     <ConfirmDialog open={!!confirmDel} T={T} title="Supprimer ce client ?" message={confirmDel?`${confirmDel.prenom} ${confirmDel.nom} sera définitivement supprimé.`:""} confirmLabel="Supprimer"
       onCancel={()=>setConfirmDel(null)} onConfirm={async()=>{const c=confirmDel;setConfirmDel(null);const phone=(c.telephone||"").replace("+","").replace(/\s/g,"");setClients(prev=>prev.filter(x=>x.id!==c.id));if(phone)await fbDel(`clients/${phone}`);}}/>
-    <div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:24,boxShadow:T.cardShadow,marginTop:20}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}><Calendar size={16} color={T.accent}/><span style={{fontSize:14,fontWeight:700,color:T.text}}>Google Calendar</span></div>
-      <p style={{fontSize:13,color:T.text2,lineHeight:1.6,margin:0}}>
-        Les QR codes de synchronisation Google Calendar sont disponibles dans chaque fiche coiffeur (onglet Équipe). Les coiffeurs peuvent scanner le QR pour s'abonner à leur planning sur leur téléphone.
-      </p>
-    </div>
     </div>);
 }
 
@@ -1336,6 +1330,12 @@ function CoiffeursP({coiffeurs,setCoiffeurs,salon,T}){
         if(c.google_calendar_id){try{await gcalSync("delete_calendar",{calendar_id:c.google_calendar_id});}catch(e){console.error("GCal delete error:",e);}}
         /* Delete all RDVs for this coiffeur */
         await fbDel(`coiffeurs/${c.id}`);}}/>
+    <div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,padding:24,boxShadow:T.cardShadow,marginTop:20}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}><Calendar size={16} color={T.accent}/><span style={{fontSize:14,fontWeight:700,color:T.text}}>Google Calendar</span></div>
+      <p style={{fontSize:13,color:T.text2,lineHeight:1.6,margin:0}}>
+        Les QR codes de synchronisation Google Calendar sont disponibles dans chaque fiche coiffeur. Les coiffeurs peuvent scanner le QR pour s'abonner à leur planning sur leur téléphone.
+      </p>
+    </div>
     </div>);
 }
 
