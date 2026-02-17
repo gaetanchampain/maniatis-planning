@@ -360,6 +360,10 @@ function WeekView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,onDragDrop,salon,T
                   style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:`1px solid ${T.surface2}`,padding:1,height:H,cursor:ac?"not-allowed":"pointer",position:"relative",
                     background:isDT?T.accent+"30":ac?T.congeBgCell:offBg||(same(d,n)?(past?T.surface2+"40":T.surface2+"80"):"transparent"),
                     outline:isDT?`2px solid ${T.accent}`:"none",outlineOffset:"-2px",transition:"background 0.1s"}}>
+                  {isDT&&dragRdvId&&(()=>{const dr=rdvs.find(r=>r.id===dragRdvId);if(!dr)return null;const endM=h*60+m+dr.duree_totale_minutes;
+                    return <div style={{position:"absolute",left:"50%",top:"50%",transform:"translate(-50%,-50%)",zIndex:25,pointerEvents:"none",
+                      background:T.accent,color:"#fff",borderRadius:6,padding:"2px 8px",fontSize:10,fontWeight:800,fontFamily:"'Outfit',sans-serif",
+                      whiteSpace:"nowrap",boxShadow:"0 2px 8px rgba(0,0,0,0.2)"}}>{JC[d.getDay()]} {String(h).padStart(2,"0")}h{String(m).padStart(2,"0")} → {String(Math.floor(endM/60)).padStart(2,"0")}h{String(endM%60).padStart(2,"0")}</div>;})()}
                   {rh.map(r=>{const co=coiffeurs.find(c=>c.id===r.coiffeur_id),pH=r.duree_totale_minutes/30*H;
                     const rdvPast=new Date(new Date(r.date_heure).getTime()+r.duree_totale_minutes*60000)<n;
                     return(<div key={r.id} draggable={!rdvPast} onDragStart={e=>{e.dataTransfer.setData("rdvId",r.id);e.dataTransfer.effectAllowed="move";setDragRdvId(r.id);}}
@@ -520,6 +524,10 @@ function DayView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,onDragDrop,salon,T}
                   onDrop={e=>{e.preventDefault();const rid=e.dataTransfer.getData("rdvId");if(rid&&onDragDrop&&!cg)onDragDrop(rid,currentDate,h,m,c.id);setDragTarget(null);setDragRdvId(null);}}
                   style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:`1px solid ${T.surface2}`,padding:1,height:H,cursor:cg?"not-allowed":"pointer",position:"relative",
                     background:isDT?T.accent+"30":bg,outline:isDT?`2px solid ${T.accent}`:"none",outlineOffset:"-2px",transition:"background 0.1s"}}>
+                  {isDT&&dragRdvId&&(()=>{const dr=rdvs.find(r=>r.id===dragRdvId);if(!dr)return null;const endM=h*60+m+dr.duree_totale_minutes;
+                    return <div style={{position:"absolute",left:"50%",top:"50%",transform:"translate(-50%,-50%)",zIndex:25,pointerEvents:"none",
+                      background:T.accent,color:"#fff",borderRadius:6,padding:"2px 8px",fontSize:10,fontWeight:800,fontFamily:"'Outfit',sans-serif",
+                      whiteSpace:"nowrap",boxShadow:"0 2px 8px rgba(0,0,0,0.2)"}}>{c.prenom} · {String(h).padStart(2,"0")}h{String(m).padStart(2,"0")} → {String(Math.floor(endM/60)).padStart(2,"0")}h{String(endM%60).padStart(2,"0")}</div>;})()}
                   {rh.map(r=>{const pH=r.duree_totale_minutes/30*H;
                     const rdvPast=new Date(new Date(r.date_heure).getTime()+r.duree_totale_minutes*60000)<n;
                     return(<div key={r.id} draggable={!rdvPast} onDragStart={e=>{e.dataTransfer.setData("rdvId",r.id);e.dataTransfer.effectAllowed="move";setDragRdvId(r.id);}}
