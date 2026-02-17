@@ -318,9 +318,11 @@ function Indicators({rdvs,view,currentDate,cf,coiffeurs,salon,T}){
 }
 
 /* WEEK VIEW */
-function WeekView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
+function WeekView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,onDragDrop,salon,T}){
   const slots=mkSlots(salon),days=openDays(currentDate,salon),H=28;
   const [tick,setTick]=useState(Date.now());
+  const [dragTarget,setDragTarget]=useState(null);
+  const [dragRdvId,setDragRdvId]=useState(null);
   useEffect(()=>{const iv=setInterval(()=>setTick(Date.now()),60000);return()=>clearInterval(iv);},[]);
   const n=new Date(tick);
   const isConge=(d,coifId)=>{if(isSalonFerme(d,salon))return true;const ds=fd(d);const c=coiffeurs.find(x=>x.id===coifId);return c?.conges?.includes(ds);};
@@ -350,13 +352,20 @@ function WeekView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
                 const rh=rdvs.filter(r=>{if(r.statut!=="confirme")return false;if(cf.length>0&&!cf.includes(r.coiffeur_id))return false;
                   const rd=new Date(r.date_heure);return same(rd,d)&&rd.getHours()===h&&rd.getMinutes()===m;});
                 const past=isPast(d,h,m);const ac=allConge(d);const offBg=!ac?allOffStyle(d,h,m,coiffeurs,cf,30,T):null;
+                const isDT=dragTarget&&dragTarget.d===fd(d)&&dragTarget.h===h&&dragTarget.m===m;
                 return(<div key={`${fd(d)}-${label}`} onClick={()=>rh.length===0&&!ac&&onSlot(d,h,m)}
+                  onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect="move";if(!ac)setDragTarget({d:fd(d),h,m});}}
+                  onDragLeave={()=>setDragTarget(null)}
+                  onDrop={e=>{e.preventDefault();const rid=e.dataTransfer.getData("rdvId");if(rid&&onDragDrop&&!ac)onDragDrop(rid,d,h,m);setDragTarget(null);setDragRdvId(null);}}
                   style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:`1px solid ${T.surface2}`,padding:1,height:H,cursor:ac?"not-allowed":"pointer",position:"relative",
-                    background:ac?T.congeBgCell:offBg||( same(d,n)?(past?T.surface2+"40":T.surface2+"80"):"transparent")}}>
+                    background:isDT?T.accent+"30":ac?T.congeBgCell:offBg||(same(d,n)?(past?T.surface2+"40":T.surface2+"80"):"transparent"),
+                    outline:isDT?`2px solid ${T.accent}`:"none",outlineOffset:"-2px",transition:"background 0.1s"}}>
                   {rh.map(r=>{const co=coiffeurs.find(c=>c.id===r.coiffeur_id),pH=r.duree_totale_minutes/30*H;
                     const rdvPast=new Date(new Date(r.date_heure).getTime()+r.duree_totale_minutes*60000)<n;
-                    return(<div key={r.id} onClick={e=>{e.stopPropagation();onRdv(r);}}
-                      style={{position:"absolute",left:2,right:2,top:1,height:pH-3,borderRadius:pH<35?5:8,padding:pH<35?"2px 6px":"4px 8px",cursor:"pointer",overflow:"hidden",zIndex:10,
+                    return(<div key={r.id} draggable={!rdvPast} onDragStart={e=>{e.dataTransfer.setData("rdvId",r.id);e.dataTransfer.effectAllowed="move";setDragRdvId(r.id);}}
+                      onDragEnd={()=>{setDragRdvId(null);setDragTarget(null);}}
+                      onClick={e=>{e.stopPropagation();onRdv(r);}}
+                      style={{position:"absolute",left:2,right:2,top:1,height:pH-3,borderRadius:pH<35?5:8,padding:pH<35?"2px 6px":"4px 8px",cursor:rdvPast?"default":"grab",overflow:"hidden",zIndex:10,
                         background:co?co.couleur+(rdvPast?"10":"18"):T.surface3,borderLeft:`3px solid ${co?co.couleur+(rdvPast?"60":"ff"):T.text3}`,
                         opacity:rdvPast?0.55:1}}>
                       {pH<35?<div style={{fontSize:9,fontWeight:700,color:co?co.couleur:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.client_prenom} {r.client_nom?.charAt(0)}. · {r.prestations_noms} · {r.prix_total}€</div>
@@ -474,9 +483,11 @@ function WeekSbsView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
 }
 
 /* DAY VIEW */
-function DayView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
+function DayView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,onDragDrop,salon,T}){
   const slots=mkSlots(salon),vc=coiffeurs.filter(c=>c.actif&&(cf.length===0||cf.includes(c.id))),H=28;
   const [tick,setTick]=useState(Date.now());
+  const [dragTarget,setDragTarget]=useState(null);
+  const [dragRdvId,setDragRdvId]=useState(null);
   useEffect(()=>{const iv=setInterval(()=>setTick(Date.now()),60000);return()=>clearInterval(iv);},[]);
   const n=new Date(tick);const isToday=same(currentDate,n);
   const isConge=(coifId)=>{if(isSalonFerme(currentDate,salon))return true;const ds=fd(currentDate);const c=coiffeurs.find(x=>x.id===coifId);return c?.conges?.includes(ds);};
@@ -502,13 +513,19 @@ function DayView({currentDate,rdvs,cf,coiffeurs,onSlot,onRdv,salon,T}){
                 const cg=isConge(c.id);const past=isPast(h,m);const offBg=!cg?offStyle(currentDate,c,h,m,30,T):null;
                 const rh=rdvs.filter(r=>{if(r.statut!=="confirme"||r.coiffeur_id!==c.id)return false;const rd=new Date(r.date_heure);return same(rd,currentDate)&&rd.getHours()===h&&rd.getMinutes()===m;});
                 const bg=cg?T.congeBgCell:offBg||(past?(T.surface2+"40"):"transparent");
+                const isDT=dragTarget&&dragTarget.c===c.id&&dragTarget.h===h&&dragTarget.m===m;
                 return(<div key={`${c.id}-${label}`} onClick={()=>!cg&&rh.length===0&&onSlot(currentDate,h,m,c.id)}
+                  onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect="move";if(!cg)setDragTarget({c:c.id,h,m});}}
+                  onDragLeave={()=>setDragTarget(null)}
+                  onDrop={e=>{e.preventDefault();const rid=e.dataTransfer.getData("rdvId");if(rid&&onDragDrop&&!cg)onDragDrop(rid,currentDate,h,m,c.id);setDragTarget(null);setDragRdvId(null);}}
                   style={{borderBottom:`1px solid ${T.surface2}`,borderLeft:`1px solid ${T.surface2}`,padding:1,height:H,cursor:cg?"not-allowed":"pointer",position:"relative",
-                    background:bg}}>
+                    background:isDT?T.accent+"30":bg,outline:isDT?`2px solid ${T.accent}`:"none",outlineOffset:"-2px",transition:"background 0.1s"}}>
                   {rh.map(r=>{const pH=r.duree_totale_minutes/30*H;
                     const rdvPast=new Date(new Date(r.date_heure).getTime()+r.duree_totale_minutes*60000)<n;
-                    return(<div key={r.id} onClick={e=>{e.stopPropagation();onRdv(r);}}
-                      style={{position:"absolute",left:2,right:2,top:1,height:pH-3,borderRadius:pH<35?5:8,padding:pH<35?"2px 8px":"6px 10px",cursor:"pointer",overflow:"hidden",zIndex:10,
+                    return(<div key={r.id} draggable={!rdvPast} onDragStart={e=>{e.dataTransfer.setData("rdvId",r.id);e.dataTransfer.effectAllowed="move";setDragRdvId(r.id);}}
+                      onDragEnd={()=>{setDragRdvId(null);setDragTarget(null);}}
+                      onClick={e=>{e.stopPropagation();onRdv(r);}}
+                      style={{position:"absolute",left:2,right:2,top:1,height:pH-3,borderRadius:pH<35?5:8,padding:pH<35?"2px 8px":"6px 10px",cursor:rdvPast?"default":"grab",overflow:"hidden",zIndex:10,
                         background:c.couleur+(rdvPast?"10":"18"),borderLeft:`3px solid ${c.couleur+(rdvPast?"60":"ff")}`,
                         opacity:rdvPast?0.55:1}}>
                       {pH<35?<div style={{fontSize:10,fontWeight:700,color:c.couleur,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.client_prenom} {r.client_nom?.charAt(0)}. · {r.prestations_noms} · {r.prix_total}€</div>
@@ -1506,6 +1523,30 @@ function App(){
     return inter.length===0?["__none__"]:inter;
   })();
   const clickSlot=(day,h,m,coifId)=>{setCrDef({date:day,hour:h,min:m,coif:coifId||""});setShowCr(true);};
+  const [toast,setToast]=useState(null);
+  const showToast=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
+  const handleDragDrop=async(rdvId,newDay,newH,newM,newCoifId)=>{
+    const rdv=rdvs.find(r=>r.id===rdvId);if(!rdv)return;
+    const newDateHeure=`${fd(newDay)}T${String(newH).padStart(2,"0")}:${String(newM).padStart(2,"0")}:00`;
+    const data={date_heure:newDateHeure};
+    if(newCoifId&&newCoifId!==rdv.coiffeur_id){
+      const newCo=coiffeurs.find(c=>c.id===newCoifId);
+      data.coiffeur_id=newCoifId;data.coiffeur_prenom=newCo?.prenom||"";
+    }
+    /* Optimistic update */
+    setRdvs(rdvs.map(r=>r.id===rdvId?{...r,...data}:r));
+    showToast(`RDV déplacé → ${String(newH).padStart(2,"0")}h${String(newM).padStart(2,"0")}`);
+    /* Persist to Firebase */
+    try{
+      await fbPatch(`rdv/${rdvId}`,data);
+      await fbPatch(`rdv_confirmes/${rdvId}`,{coiffeur_id:data.coiffeur_id||rdv.coiffeur_id,date_heure:newDateHeure,duree_totale_minutes:rdv.duree_totale_minutes});
+      if(rdv.google_event_id){const co=coiffeurs.find(c=>c.id===(data.coiffeur_id||rdv.coiffeur_id));
+        const dur=rdv.duree_totale_minutes||60;const endMin=newH*60+newM+dur;
+        const dateHeureFin=`${fd(newDay)}T${String(Math.floor(endMin/60)).padStart(2,"0")}:${String(endMin%60).padStart(2,"0")}:00`;
+        await gcalSync("update",{calendar_id:co?.google_calendar_id||"",event_id:rdv.google_event_id,
+          summary:`${rdv.client_nom} ${rdv.client_prenom} - ${rdv.prestations_noms}`,start:newDateHeure,end:dateHeureFin});}
+    }catch(err){console.error("Drag update error:",err);showToast("Erreur sync Firebase","error");}
+  };
   const createRdv=async({client,coiffeur_id,prestation,date,time})=>{
     const co=coiffeurs.find(c=>c.id===coiffeur_id);const rdvId=genRdvId();
     const phone=(client.telephone||"").replace("+","");
@@ -1545,7 +1586,7 @@ function App(){
   return(
     <div style={{fontFamily:"'Outfit',sans-serif",background:T.bg,height:"100vh",display:"flex",flexDirection:"column",color:T.text,overflow:"hidden"}}>
       <link href={FONT_URL} rel="stylesheet"/>
-      <style>{`*{box-sizing:border-box;margin:0;padding:0}body{background:${T.bg};overflow:hidden}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}select option{background:${T.surface2};color:${T.text}}@keyframes qrTimer{from{width:100%}to{width:0%}}@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideDown{from{opacity:0;transform:translateX(-50%) translateY(-20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
+      <style>{`*{box-sizing:border-box;margin:0;padding:0}body{background:${T.bg};overflow:hidden}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}select option{background:${T.surface2};color:${T.text}}[draggable=true]{cursor:grab}[draggable=true]:active{cursor:grabbing}@keyframes qrTimer{from{width:100%}to{width:0%}}@keyframes spin{to{transform:rotate(360deg)}}@keyframes slideDown{from{opacity:0;transform:translateX(-50%) translateY(-20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
       {fbErr&&<div style={{background:"#fef2f2",borderBottom:"1px solid #fecaca",padding:"6px 20px",fontSize:11,color:"#dc2626",display:"flex",alignItems:"center",gap:8}}>
         <AlertTriangle size={14}/> Connexion Firebase perdue — données potentiellement obsolètes
         <button onClick={()=>loadData(false)} style={{marginLeft:"auto",background:"#dc2626",color:"#fff",border:"none",borderRadius:4,padding:"2px 10px",fontSize:10,cursor:"pointer",fontFamily:"'Outfit',sans-serif"}}>Réessayer</button>
@@ -1608,10 +1649,10 @@ function App(){
           </div>
           <Indicators rdvs={rdvs} view={view} currentDate={curDate} cf={ef} coiffeurs={coiffeurs} salon={salon} T={T}/>
           <div style={{flex:1,background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:T.cardShadow}}>
-            {view==="week"&&layout==="stack"&&<WeekView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onSlot={clickSlot} onRdv={setSelRdv} salon={salon} T={T}/>}
+            {view==="week"&&layout==="stack"&&<WeekView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onSlot={clickSlot} onRdv={setSelRdv} onDragDrop={handleDragDrop} salon={salon} T={T}/>}
             {view==="week"&&layout==="sbs"&&<WeekSbsView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onSlot={clickSlot} onRdv={setSelRdv} salon={salon} T={T}/>}
             {view==="day"&&layout==="stack"&&<DayStackView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onSlot={clickSlot} onRdv={setSelRdv} salon={salon} T={T}/>}
-            {view==="day"&&layout==="sbs"&&<DayView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onSlot={clickSlot} onRdv={setSelRdv} salon={salon} T={T}/>}
+            {view==="day"&&layout==="sbs"&&<DayView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onSlot={clickSlot} onRdv={setSelRdv} onDragDrop={handleDragDrop} salon={salon} T={T}/>}
             {view==="month"&&layout==="stack"&&<MonthView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onDay={d=>{setCurDate(d);setView("day");}} salon={salon} T={T}/>}
             {view==="month"&&layout==="sbs"&&<MonthSbsView currentDate={curDate} rdvs={rdvs} cf={ef} coiffeurs={coiffeurs} onDay={d=>{setCurDate(d);setView("day");}} salon={salon} T={T}/>}
           </div>
@@ -1649,6 +1690,12 @@ function App(){
       <CreateRdv open={showCr} onClose={()=>setShowCr(false)} onCreate={createRdv}
         iDate={crDef.date} iHour={crDef.hour} iMin={crDef.min} iCoif={crDef.coif||""}
         coiffeurs={coiffeurs} prestations={prestations} clients={clients} rdvs={rdvs} salon={salon} T={T}/>
+      {toast&&<div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",
+        padding:"10px 20px",borderRadius:12,fontSize:13,fontWeight:700,fontFamily:"'Outfit',sans-serif",
+        background:toast.type==="error"?"#ef4444":"#22c55e",color:"#fff",
+        boxShadow:"0 8px 30px rgba(0,0,0,0.2)",zIndex:9999,animation:"slideDown 0.3s ease",
+        display:"flex",alignItems:"center",gap:8}}>
+        {toast.type==="error"?<AlertTriangle size={14}/>:<Check size={14}/>}{toast.msg}</div>}
     </div>
   );
 }
