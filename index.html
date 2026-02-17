@@ -853,10 +853,41 @@ function Dashboard({rdvs,coiffeurs,prestations,clients,T}){
     </div></div>);
 }
 
-/* CRUD: CLIENTS */
-function ClientsP({clients,setClients,T}){
+/* CRUD: CLIENTS — with dynamic visit count + last RDV */
+function ClientsP({clients,setClients,rdvs,coiffeurs,prestations,T}){
   const [s,setS]=useState("");const [em,setEm]=useState(null);const [f,setF]=useState({nom:"",prenom:"",telephone:"",email:""});const [confirmDel,setConfirmDel]=useState(null);
-  const fl=clients.filter(c=>!s||`${c.nom} ${c.prenom} ${c.telephone}`.toUpperCase().includes(s.toUpperCase()));
+  const [expanded,setExpanded]=useState(null); /* client id for expanded RDV history */
+
+  /* Compute real visit counts from RDVs by phone */
+  const visitCounts=useMemo(()=>{
+    const counts={};
+    rdvs.filter(r=>r.statut==="confirme").forEach(r=>{
+      const phone=(r.client_telephone||"").replace(/\+/g,"").replace(/\s/g,"");
+      if(phone)counts[phone]=(counts[phone]||0)+1;
+    });
+    return counts;
+  },[rdvs]);
+
+  /* Get last N RDVs for a client by phone */
+  const getClientRdvs=(client,limit=5)=>{
+    const phone=(client.telephone||"").replace(/\+/g,"").replace(/\s/g,"");
+    if(!phone)return[];
+    return rdvs.filter(r=>r.statut==="confirme"&&(r.client_telephone||"").replace(/\+/g,"").replace(/\s/g,"")===phone)
+      .sort((a,b)=>new Date(b.date_heure)-new Date(a.date_heure))
+      .slice(0,limit);
+  };
+
+  const getVisitCount=(client)=>{
+    const phone=(client.telephone||"").replace(/\+/g,"").replace(/\s/g,"");
+    return visitCounts[phone]||0;
+  };
+
+  const fl=clients.filter(c=>!s||`${c.nom} ${c.prenom} ${c.telephone}`.toUpperCase().includes(s.toUpperCase()))
+    .sort((a,b)=>getVisitCount(b)-getVisitCount(a));
+
+  const fmtDate=(dh)=>{const d=new Date(dh);return`${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()} ${String(d.getHours()).padStart(2,"0")}h${String(d.getMinutes()).padStart(2,"0")}`;};
+  const isPast=(dh)=>new Date(dh)<new Date();
+
   return(<div style={{overflow:"auto",flex:1,padding:"24px max(24px, calc((100% - 900px) / 2))"}}>
     <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
       <div style={{flex:1}}><Inp value={s} onChange={setS} placeholder="Rechercher un client..." icon={Search} T={T}/></div>
@@ -864,11 +895,45 @@ function ClientsP({clients,setClients,T}){
     <div style={{borderRadius:14,overflow:"hidden",border:`1px solid ${T.border}`,boxShadow:T.cardShadow}}>
       <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 80px",padding:"10px 18px",background:T.surface2,fontSize:10,fontWeight:700,color:T.text3,textTransform:"uppercase"}}>
         <span>Nom</span><span>Contact</span><span>Visites</span><span/></div>
-      {fl.map(c=>(<div key={c.id} style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 80px",padding:"12px 18px",borderTop:`1px solid ${T.border}`,alignItems:"center"}}>
-        <span style={{fontSize:13,fontWeight:600,color:T.text}}>{c.prenom} {c.nom}</span><span style={{fontSize:12,color:T.text2}}>{c.telephone}</span><Bdg small T={T}>{c.nombre_visites}</Bdg>
-        <div style={{display:"flex",gap:4}}>
-          <button onClick={()=>{setF({...c});setEm(c.id);}} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.text3}}><Edit size={14}/></button>
-          <button onClick={()=>setConfirmDel(c)} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.dangerText}}><Trash2 size={14}/></button></div></div>))}</div>
+      {fl.map(c=>{
+        const vc=getVisitCount(c);
+        const isExp=expanded===c.id;
+        const cRdvs=isExp?getClientRdvs(c,5):[];
+        return(<div key={c.id}>
+          <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 1fr 80px",padding:"12px 18px",borderTop:`1px solid ${T.border}`,alignItems:"center",
+            cursor:"pointer",background:isExp?T.surface2:"transparent"}} onClick={()=>setExpanded(isExp?null:c.id)}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:13,fontWeight:600,color:T.text}}>{c.prenom} {c.nom}</span>
+              {vc>0&&<span style={{fontSize:9,color:T.text3,transform:isExp?"rotate(180deg)":"rotate(0)",transition:"transform 0.2s"}}>▾</span>}
+            </div>
+            <span style={{fontSize:12,color:T.text2}}>{c.telephone}</span>
+            <Bdg small color={vc>=5?T.accent:undefined} T={T}>{vc}</Bdg>
+            <div style={{display:"flex",gap:4}}>
+              <button onClick={e=>{e.stopPropagation();setF({...c});setEm(c.id);}} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.text3}}><Edit size={14}/></button>
+              <button onClick={e=>{e.stopPropagation();setConfirmDel(c);}} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:T.dangerText}}><Trash2 size={14}/></button></div>
+          </div>
+          {/* Expandable last RDV */}
+          {isExp&&<div style={{padding:"0 18px 14px",borderTop:`1px solid ${T.border}`,background:T.surface2}}>
+            {cRdvs.length===0?<div style={{padding:"10px 0",fontSize:11,color:T.text3,textAlign:"center"}}>Aucun rendez-vous</div>
+            :<div style={{display:"flex",flexDirection:"column",gap:6,paddingTop:10,maxHeight:180,overflowY:"auto"}}>
+              <div style={{fontSize:9,fontWeight:700,color:T.text3,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2}}>Derniers rendez-vous</div>
+              {cRdvs.map(r=>{
+                const co=coiffeurs.find(x=>x.id===r.coiffeur_id);
+                const past=isPast(r.date_heure);
+                return(<div key={r.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",
+                  background:T.surface,borderRadius:8,border:`1px solid ${T.border}`,opacity:past?0.6:1}}>
+                  <div style={{width:4,height:28,borderRadius:2,background:co?.couleur||T.text3,flexShrink:0}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:11,fontWeight:600,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.prestations_noms}</div>
+                    <div style={{fontSize:10,color:T.text3}}>{fmtDate(r.date_heure)} · {co?cLabel(co):"?"}</div>
+                  </div>
+                  <div style={{fontSize:11,fontWeight:700,color:T.text,flexShrink:0}}>{r.prix_total}€</div>
+                  <Bdg small color={past?"#78716C":"#10b981"} T={T}>{past?"Passé":"À venir"}</Bdg>
+                </div>);})}
+            </div>}
+          </div>}
+        </div>);})}
+    </div>
     <Modal open={!!em} onClose={()=>setEm(null)} title={em==="new"?"Nouveau client":"Modifier client"} T={T}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><Inp label="Nom" value={f.nom} onChange={v=>setF({...f,nom:v})} T={T}/><Inp label="Prénom" value={f.prenom} onChange={v=>setF({...f,prenom:v})} T={T}/></div>
       <Inp label="Téléphone" value={f.telephone} onChange={v=>setF({...f,telephone:v})} icon={Phone} T={T}/>
@@ -1524,7 +1589,7 @@ function App(){
           </div>
         </div>
       )}
-      {page==="clients"&&<ClientsP clients={clients} setClients={setClients} T={T}/>}
+      {page==="clients"&&<ClientsP clients={clients} setClients={setClients} rdvs={rdvs} coiffeurs={coiffeurs} prestations={prestations} T={T}/>
       {page==="prestations"&&<PrestationsP prestations={prestations} setPrestations={setPrestas} salon={salon} T={T}/>}
       {page==="coiffeurs"&&<CoiffeursP coiffeurs={coiffeurs} setCoiffeurs={setCoiffeurs} salon={salon} T={T}/>}
       {page==="salon"&&<SalonP salon={salon} setSalon={setSalon} T={T}/>}
